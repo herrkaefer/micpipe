@@ -315,11 +315,34 @@ class GeminiChrome(ChromeController):
     def __init__(self):
         super().__init__("Gemini", "gemini.google.com", "Gemini")
 
+    def ensure_gemini_tab_exists(self):
+        """Check if a Gemini tab exists, create one if not. Returns status string."""
+        location = self.get_tab_location()
+        if location:
+            return "EXISTS"
+        js = 'return "TAB_CHECK";'
+        res = self._execute_js(js, open_url="https://gemini.google.com/app")
+        if "OPENING" in res:
+            return "CREATED"
+        return res
+
+    def is_front_tab_gemini(self):
+        """Check if the front tab in Chrome is a Gemini tab. Returns 'YES' or 'NO'."""
+        return "YES" if self.get_front_tab_location() is not None else "NO"
+
+    def get_gemini_tab_location(self):
+        """Alias for get_tab_location for clarity."""
+        return self.get_tab_location()
+
+    def get_front_gemini_tab_location(self):
+        """Alias for get_front_tab_location for clarity."""
+        return self.get_front_tab_location()
+
     def is_page_ready(self, preferred_location=None):
         js = '''
         (function() {
             if (document.readyState !== 'complete') return "PAGE_NOT_READY";
-            var btn = document.querySelector('button[aria-label="Microphone"]');
+            var btn = document.querySelector('.speech_dictation_mic_button');
             return btn ? "READY" : "BTN_NOT_FOUND";
         })()
         '''
@@ -328,7 +351,7 @@ class GeminiChrome(ChromeController):
     def start_dictation(self, preferred_location=None):
         js = '''
         (function() {
-            var btn = document.querySelector('button[aria-label="Microphone"]');
+            var btn = document.querySelector('.speech_dictation_mic_button');
             if (btn) { btn.click(); return "START_DONE"; }
             return "START_BTN_NOT_FOUND";
         })()
@@ -336,60 +359,85 @@ class GeminiChrome(ChromeController):
         return self._execute_js(js, preferred_location, open_url="https://gemini.google.com/app")
 
     def stop_dictation(self, preferred_location=None):
+        """Stop dictation - in Gemini, clicking the mic button again stops and submits."""
         js = '''
         (function() {
-            // In Gemini, clicking the mic again stops it, or the send button appears
-            var micOn = document.querySelector('button.speech_dictation_mic_button mat-icon.mic-on');
+            // Check if mic is actively listening (has mic-on icon)
+            var micOn = document.querySelector('.speech_dictation_mic_button mat-icon.mic-on');
             if (micOn) {
-                micOn.parentElement.click();
-                return "STOP_MIC_CLICKED";
+                // Click the mic button to stop and submit
+                var btn = document.querySelector('.speech_dictation_mic_button');
+                if (btn) { btn.click(); return "STOP_CLICKED"; }
             }
-            var sendBtn = document.querySelector('button[aria-label="Send message"]');
-            if (sendBtn) {
-                sendBtn.click();
-                return "STOP_SEND_CLICKED";
-            }
-            return "STOP_FAILED";
+            // Fallback: try to find and click the send button if transcription is ready
+            var sendBtn = document.querySelector('button.send-button');
+            if (sendBtn) { sendBtn.click(); return "SEND_CLICKED"; }
+            return "STOP_BTN_NOT_FOUND";
         })()
         '''
         return self._execute_js(js, preferred_location)
 
     def cancel_dictation(self, preferred_location=None):
-        js = '''
-        (function() {
-            var micOn = document.querySelector('button.speech_dictation_mic_button mat-icon.mic-on');
-            if (micOn) { micOn.parentElement.click(); return "CANCEL_DONE"; }
-            return "CANCEL_NOT_LISTENING";
-        })()
-        '''
-        return self._execute_js(js, preferred_location)
+        """Gemini does not support cancel - this is a no-op that returns a status."""
+        return "CANCEL_NOT_SUPPORTED"
 
     def get_text_and_clear(self, activate_first=True, preferred_location=None):
         js_code = '''
         (function() {
-            var editor = document.querySelector('div[aria-label="Enter a prompt here"][role="textbox"]');
-            if (editor) {
-                var text = editor.innerText || editor.textContent || "";
-                if (!text.trim()) return "EMPTY";
-                editor.innerText = "";
-                editor.innerHTML = "";
-                editor.dispatchEvent(new Event('input', { bubbles: true }));
-                return text.trim();
+            try {
+                // Gemini uses .ql-editor with role=textbox
+                // It can have different aria-labels depending on language
+                var editor = document.querySelector('.ql-editor[role="textbox"]');
+
+                // Fallback 1: Any ql-editor (Quill editor)
+                if (!editor) {
+                    editor = document.querySelector('.ql-editor');
+                }
+
+                // Fallback 2: contenteditable div with role=textbox
+                if (!editor) {
+                    editor = document.querySelector('div[contenteditable="true"][role="textbox"]');
+                }
+
+                if (!editor) {
+                    return "NOT_FOUND";
+                }
+
+                // Get text - innerText works better for contenteditable
+                var text = (editor.innerText || editor.textContent || "").trim();
+
+                if (!text) {
+                    return "EMPTY";
+                }
+
+                // Clear the editor by removing all child nodes
+                while (editor.firstChild) {
+                    editor.removeChild(editor.firstChild);
+                }
+
+                // Trigger events
+                try {
+                    editor.dispatchEvent(new Event('input', { bubbles: true }));
+                    editor.dispatchEvent(new Event('change', { bubbles: true }));
+                } catch(e) {}
+
+                return text;
+            } catch(err) {
+                return "ERROR:" + err.message;
             }
-            return "NOT_FOUND";
         })()
         '''
         if not activate_first:
             return self._execute_js(js_code, preferred_location)
-        
+
         b64_js = base64.b64encode(js_code.encode('utf-8')).decode('utf-8')
         win_idx, tab_idx = preferred_location if preferred_location else (0, 0)
-        
+
         script = f'''
         tell application "Google Chrome"
             set originalWin to front window
             set originalTabIndex to active tab index of originalWin
-            
+
             set targetWin to missing value
             set targetTab to missing value
             set targetTabIndex to 0
@@ -424,7 +472,7 @@ class GeminiChrome(ChromeController):
             set index of targetWin to 1
             delay 0.15
             set res to execute targetTab javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-            
+
             try
                 set index of originalWin to 1
                 set active tab index of originalWin to originalTabIndex
