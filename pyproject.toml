@@ -1,0 +1,13 @@
+[project]
+name = "micpipe"
+version = "0.1.0"
+description = "Voice-to-text utility for ChatGPT using global hotkeys"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pynput>=1.8.1",
+    "pyobjc-framework-cocoa>=12.1",
+    "pyobjc-framework-quartz>=12.1",
+    "pyperclip>=1.11.0",
+    "rumps>=0.4.0",
+]
