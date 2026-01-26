@@ -1,6 +1,9 @@
 import subprocess
 import base64
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 def run_applescript(script):
     """Run AppleScript and return the result"""
@@ -24,7 +27,7 @@ def run_applescript(script):
     debug = os.environ.get("MICPIPE_DEBUG_APPLESCRIPT") in ("1", "true", "TRUE", "yes", "YES")
     if out.startswith("__MICPIPE_APPLESCRIPT_ERROR__:"):
         if debug:
-            print(out)
+            logger.debug(out)
         return out
     return out
 
@@ -169,7 +172,7 @@ class ChromeController:
         end tell
         '''
         result = run_applescript(script)
-        print(f"[Debug _execute_js] preferred_win_id={preferred_win_id}, result={result[:200]}")
+        logger.debug(f"[_execute_js] preferred_win_id={preferred_win_id}, result={result[:200]}")
         return result
 
     def is_front_tab_match(self) -> bool:
@@ -255,7 +258,7 @@ class ChatGPTChrome(ChromeController):
         })()
         '''
         result = self._execute_js(js, preferred_location)
-        print(f"[Debug stop_dictation] preferred_location={preferred_location}, result={result}")
+        logger.debug(f"[stop_dictation] preferred_location={preferred_location}, result={result}")
         return result
 
     def cancel_dictation(self, preferred_location=None):

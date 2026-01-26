@@ -1,3 +1,4 @@
+import logging
 import time
 import os
 import Quartz
@@ -29,6 +30,13 @@ from paste_tool import paste_text
 # ============================================================
 
 TRIGGER_KEY_CODE = 63  # Fn key (supports both Hold and Toggle modes)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ============================================================
 
@@ -107,7 +115,7 @@ class MicPipeApp(rumps.App):
             else:
                 result = self.gemini_chrome.ensure_gemini_tab_exists()
                 service_name = "Gemini"
-            print(f"{service_name} tab check: {result}")
+            logger.info(f"{service_name} tab check: {result}")
             if "CREATED" in result:
                 rumps.notification(
                     "MicPipe",
@@ -115,7 +123,7 @@ class MicPipeApp(rumps.App):
                     f"Please keep the {service_name} tab open for voice input to work."
                 )
         except Exception as e:
-            print(f"Failed to check service tab: {e}")
+            logger.error(f"Failed to check service tab: {e}")
 
     def select_chatgpt(self, _):
         """Switch to ChatGPT service."""
@@ -326,9 +334,9 @@ class MicPipeApp(rumps.App):
                 else:
                     location = self.chrome.get_gemini_tab_location()
             self.service_tab_location = location
-            print(f"[Debug] Recorded tab location: {location}")  # Debug output
+            logger.debug(f"Recorded tab location: {location}")
         except Exception as e:
-            print(f"[Debug] Failed to record tab location: {e}")  # Debug output
+            logger.debug(f"Failed to record tab location: {e}")
             self.service_tab_location = None
 
         # 2. Update status and state
@@ -432,7 +440,7 @@ class MicPipeApp(rumps.App):
         self.current_state = "PROCESSING"
         self.status_item.title = "Status: ⏳ Transcribing..."
 
-        print(f"[Debug] Stopping dictation at location: {self.service_tab_location}")  # Debug output
+        logger.debug(f"Stopping dictation at location: {self.service_tab_location}")
         self.chrome.stop_dictation(preferred_location=self.service_tab_location)
 
         # If we're already on the service page, don't extract/clear/paste. Leaving the text
@@ -460,13 +468,13 @@ class MicPipeApp(rumps.App):
                 activate_first=force_activate,
                 preferred_location=self.service_tab_location,
             )
-            print(f"[Debug] Attempt {i+1}/{max_attempts}: {res}")  # Debug output
+            logger.debug(f"Attempt {i+1}/{max_attempts}: {res}")
             force_activate = False
             if res.startswith("SUCCESS:"):
                 content = res.split("SUCCESS:", 1)[1]
                 if content and content not in ["EMPTY", "NOT_FOUND", "SUCCESS", "missing value"]:
                     text = content
-                    print(f"[Debug] Got text: {text[:50]}...")  # Debug output
+                    logger.debug(f"Got text: {text[:50]}...")
                     break
                 # If still empty, try re-activating on the next poll
                 force_activate = True
