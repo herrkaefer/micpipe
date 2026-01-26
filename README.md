@@ -19,8 +19,15 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 - Python 3.11+
 - Google Chrome (must enable JavaScript from Apple Events, see below)
 
-## Quick start (uv)
+## Quick Start
 
+### Option 1: Premium Launch (No terminal window)
+Double-click **`MicPipe.app`** in the project folder. This is an AppleScript wrapper that runs the app in the background.
+
+### Option 2: Command Launch (With logging)
+Double-click **`MicPipe.command`**. This is useful if you want to see the debug logs in a terminal window.
+
+### Option 3: Manual Launch
 ```bash
 uv run python main.py
 ```
@@ -45,11 +52,11 @@ Enable **Allow JavaScript from Apple Events** in Chrome:
 
 ### 3. Run the app
 
-```bash
-uv run python main.py
-```
+- **MicPipe.app**: Double-click for a silent, background experience (recommended).
+- **MicPipe.command**: Double-click to run with a visible terminal (best for debugging).
+- **Terminal**: Run `uv run python main.py`.
 
-Grant the required permissions when prompted.
+> **Note for first-time use**: Since this is an unsigned app, macOS might block it. If so, **Right-click** `MicPipe.app` (or `.command`) and select **Open**, then click **Open** again in the warning dialog.
 
 ## Usage
 

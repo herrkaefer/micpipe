@@ -19,8 +19,15 @@ MicPipe 是一个 macOS 小应用，让你能够直接在任何应用程序中�
 - Python 3.11+
 - Google Chrome（需开启 JavaScript from Apple Events，见下方说明）
 
-## 快速开始（uv）
+## 快速开始
 
+### 方式 1：静默启动（推荐，无终端窗口）
+在项目文件夹中双击 **`MicPipe.app`**。这是一个 AppleScript 包装器，会在后台静默运行应用。
+
+### 方式 2：命令行启动（带日志）
+双击 **`MicPipe.command`**。如果您想查看终端里的调试日志，请使用此方式。
+
+### 方式 3：手动启动
 ```bash
 uv run python main.py
 ```
@@ -45,11 +52,11 @@ uv run python main.py
 
 ### 3. 启动应用
 
-```bash
-uv run python main.py
-```
+- **MicPipe.app**：双击启动，享受无窗口的静默体验（推荐）。
+- **MicPipe.command**：双击启动，会在终端显示系统日志（适合排错）。
+- **终端启动**：运行 `uv run python main.py`。
 
-首次运行时请按提示授予权限。
+> **首次运行提示**：由于这是未签名应用，macOS 可能会拦截。如果双击没反应，请在 `MicPipe.app`（或 `.command`）上**右键点击 -> 打开**，然后在弹窗中再次点击**打开**即可。
 
 ## 使用方法
 

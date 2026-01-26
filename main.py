@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 class MicPipeApp(rumps.App):
     def __init__(self):
         super(MicPipeApp, self).__init__("MicPipe", quit_button="Quit")
-        self.icon = "assets/icon_idle_template.png"
+        self.base_path = os.path.dirname(__file__)
+        self.icon = os.path.join(self.base_path, "assets/icon_idle_template.png")
         self.template = True  # Enable template mode for idle icon
 
         # Service selection (ChatGPT or Gemini)
@@ -66,8 +67,8 @@ class MicPipeApp(rumps.App):
         self.should_auto_start = False
         self.waiting_for_page = False
         self.service_tab_location = None  # Renamed from chatgpt_tab_location
-        self._sound_start = os.path.join(os.path.dirname(__file__), "assets", "sound_start.wav")
-        self._sound_stop = os.path.join(os.path.dirname(__file__), "assets", "sound_stop.wav")
+        self._sound_start = os.path.join(self.base_path, "assets", "sound_start.wav")
+        self._sound_stop = os.path.join(self.base_path, "assets", "sound_stop.wav")
         self.sound_enabled = True
 
         # Build menu
@@ -152,8 +153,9 @@ class MicPipeApp(rumps.App):
         self.animation_frame += 1
 
         if self.current_state == "IDLE":
-            if self.icon != "assets/icon_idle_template.png":
-                self.icon = "assets/icon_idle_template.png"
+            idle_icon = os.path.join(self.base_path, "assets/icon_idle_template.png")
+            if self.icon != idle_icon:
+                self.icon = idle_icon
                 self.template = True
                 self.title = None
 
@@ -161,14 +163,14 @@ class MicPipeApp(rumps.App):
             # Pulsating red dot animation (every 2 frames = 5Hz)
             if self.animation_frame % 2 == 0:
                 frame = (self.animation_frame // 2) % 4 + 1
-                self.icon = f"assets/icon_rec_{frame}.png"
+                self.icon = os.path.join(self.base_path, f"assets/icon_rec_{frame}.png")
                 self.template = False # Red color needs template=False
                 self.title = None
 
         elif self.current_state == "WAITING" or self.current_state == "PROCESSING":
             # Spinning/Processing icon (every 3 frames)
             if self.animation_frame % 3 == 0:
-                self.icon = "assets/icon_processing.png"
+                self.icon = os.path.join(self.base_path, "assets/icon_processing.png")
                 self.template = True
                 self.title = None
                 # Optional: rotate icon if supported, but here we just keep it static 
