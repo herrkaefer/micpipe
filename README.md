@@ -1,4 +1,5 @@
-# MicPipe
+# <img src="assets/logo.png" width="80" vertical-align="middle"> MicPipe
+
 
 [中文说明](README.zh-CN.md)
 
