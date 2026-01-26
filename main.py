@@ -94,6 +94,10 @@ class MicPipeApp(rumps.App):
             self.sound_toggle_item
         ]
 
+        # Animation timer (runs at 10Hz)
+        self.timer = rumps.Timer(self._update_animation, 0.1)
+        self.timer.start()
+
     def _ensure_service_tab(self):
         """Ensure the current service tab exists at startup."""
         try:
@@ -134,10 +138,6 @@ class MicPipeApp(rumps.App):
         self.service_gemini.state = 1
         self.cancel_mode_info.title = "  Press Esc → Cancel (ChatGPT only)"
         self._ensure_service_tab()
-
-        # Animation timer (runs at 10Hz, but we can throttle in the callback)
-        self.timer = rumps.Timer(self._update_animation, 0.1)
-        self.timer.start()
 
     def _update_animation(self, _):
         """Update menu bar icon based on current state"""
