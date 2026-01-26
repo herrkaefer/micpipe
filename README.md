@@ -4,7 +4,7 @@
 
 ## Overview
 
-MicPipe is a macOS menu bar app that turns speech into text via ChatGPT’s dictation UI in Chrome, then pastes the result back into the app you were using.
+MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dictation feature directly within any application.
 
 ### Key features
 - One key, two modes: **hold to speak** or **click to toggle**
