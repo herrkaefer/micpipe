@@ -161,6 +161,30 @@ class ChatGPTChrome(ChromeController):
     def __init__(self):
         super().__init__("ChatGPT", "chatgpt.com", "ChatGPT")
 
+    def ensure_chatgpt_tab_exists(self):
+        """Check if a ChatGPT tab exists, create one if not. Returns status string."""
+        location = self.get_tab_location()
+        if location:
+            return "EXISTS"
+        # No tab found, create one
+        js = 'return "TAB_CHECK";'
+        res = self._execute_js(js, open_url="https://chatgpt.com")
+        if "OPENING" in res:
+            return "CREATED"
+        return res
+
+    def is_front_tab_chatgpt(self):
+        """Check if the front tab in Chrome is a ChatGPT tab. Returns 'YES' or 'NO'."""
+        return "YES" if self.get_front_tab_location() is not None else "NO"
+
+    def get_chatgpt_tab_location(self):
+        """Alias for get_tab_location for clarity."""
+        return self.get_tab_location()
+
+    def get_front_chatgpt_tab_location(self):
+        """Alias for get_front_tab_location for clarity."""
+        return self.get_front_tab_location()
+
     def is_page_ready(self, preferred_location=None):
         js = '''
         (function() {
@@ -190,22 +214,17 @@ class ChatGPTChrome(ChromeController):
         return self._execute_js(js, preferred_location, open_url="https://chatgpt.com")
 
     def stop_dictation(self, preferred_location=None):
+        """Stop dictation by clicking Submit dictation button to finish and keep transcribed text."""
         js = '''
         (function() {
             var buttons = Array.from(document.querySelectorAll('button'));
-            var btn = buttons.find(b => 
-                (b.ariaLabel && (b.ariaLabel.includes('Submit dictation') || b.ariaLabel.includes('Stop dictation'))) || 
-                b.querySelector('svg path[d*="M15.484"]') || 
+            // Submit dictation button - finishes recording and keeps transcribed text
+            var btn = buttons.find(b =>
+                (b.ariaLabel && b.ariaLabel.includes('Submit dictation')) ||
                 b.querySelector('svg path[d*="M20 6L9 17l-5-5"]')
             );
-            if (btn) { btn.click(); return "STOP_CLICKED"; }
-            
-            var textarea = document.querySelector('#prompt-textarea');
-            if (textarea) {
-                textarea.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
-                return "STOP_ENTER_SENT";
-            }
-            return "STOP_FAILED";
+            if (btn) { btn.click(); return "SUBMIT_CLICKED"; }
+            return "SUBMIT_BTN_NOT_FOUND";
         })()
         '''
         return self._execute_js(js, preferred_location)
