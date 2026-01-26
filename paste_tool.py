@@ -25,14 +25,6 @@ def paste_text(text):
     cmd_v_up = CGEventCreateKeyboardEvent(None, 9, False)
     CGEventPost(kCGHIDEventTap, cmd_v_up)
 
-def delete_last_char():
-    """Simulate Backspace key press"""
-    # Backspace key code is 51
-    delete_down = CGEventCreateKeyboardEvent(None, 51, True)
-    CGEventPost(kCGHIDEventTap, delete_down)
-    delete_up = CGEventCreateKeyboardEvent(None, 51, False)
-    CGEventPost(kCGHIDEventTap, delete_up)
-
 # Polyfill for missing import function
 def CGEventSetFlags(event, flags):
     from Quartz.CoreGraphics import CGEventSetFlags as _CGEventSetFlags
