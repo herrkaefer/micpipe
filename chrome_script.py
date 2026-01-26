@@ -36,22 +36,20 @@ class ChromeController:
         self.title_pattern = title_pattern
 
     def get_tab_location(self):
-        """Return (window_index, tab_index) for the first matching tab, or None."""
+        """Return (window_id, tab_index) for the first matching tab, or None."""
         script = f'''
         tell application "Google Chrome"
             if (count of windows) = 0 then return "NOT_FOUND"
-            set winIndex to 1
             repeat with win in windows
                 set tabIndex to 1
                 repeat with t in tabs of win
                     try
                         if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
-                            return "WIN:" & winIndex & ",TAB:" & tabIndex
+                            return "WIN_ID:" & (id of win) & ",TAB:" & tabIndex
                         end if
                     end try
                     set tabIndex to tabIndex + 1
                 end repeat
-                set winIndex to winIndex + 1
             end repeat
             return "NOT_FOUND"
         end tell
@@ -59,28 +57,28 @@ class ChromeController:
         res = run_applescript(script)
         if not res or res.startswith("__MICPIPE_APPLESCRIPT_ERROR__"):
             return None
-        if res.startswith("WIN:") and ",TAB:" in res:
+        if res.startswith("WIN_ID:") and ",TAB:" in res:
             try:
                 win_part, tab_part = res.split(",TAB:")
-                win_idx = int(win_part.replace("WIN:", ""))
+                win_id = int(win_part.replace("WIN_ID:", ""))
                 tab_idx = int(tab_part)
-                return (win_idx, tab_idx)
+                return (win_id, tab_idx)
             except Exception:
                 return None
         return None
 
     def get_front_tab_location(self):
-        """Return (window_index, tab_index) if the front tab matches, else None."""
+        """Return (window_id, tab_index) if the front tab matches, else None."""
         script = f'''
         tell application "Google Chrome"
             if (count of windows) = 0 then return "NOT_FOUND"
             try
                 set frontWin to front window
-                set winIndex to index of frontWin
+                set winId to id of frontWin
                 set tabIndex to active tab index of frontWin
                 set t to active tab of frontWin
                 if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
-                    return "WIN:" & winIndex & ",TAB:" & tabIndex
+                    return "WIN_ID:" & winId & ",TAB:" & tabIndex
                 end if
             end try
             return "NOT_MATCHED"
@@ -89,26 +87,31 @@ class ChromeController:
         res = run_applescript(script)
         if not res or res.startswith("__MICPIPE_APPLESCRIPT_ERROR__"):
             return None
-        if res.startswith("WIN:") and ",TAB:" in res:
+        if res.startswith("WIN_ID:") and ",TAB:" in res:
             try:
                 win_part, tab_part = res.split(",TAB:")
-                win_idx = int(win_part.replace("WIN:", ""))
+                win_id = int(win_part.replace("WIN_ID:", ""))
                 tab_idx = int(tab_part)
-                return (win_idx, tab_idx)
+                return (win_id, tab_idx)
             except Exception:
                 return None
         return None
 
     def _execute_js(self, js_code, preferred_location=None, open_url=None):
         b64_js = base64.b64encode(js_code.encode('utf-8')).decode('utf-8')
-        preferred_win_index = 0
+
+        # Check if preferred_location is window_id or URL based on type
+        preferred_win_id = 0
         preferred_tab_index = 0
         if preferred_location and len(preferred_location) == 2:
             try:
-                preferred_win_index = int(preferred_location[0])
+                # Try to parse first element as int (window ID)
+                preferred_win_id = int(preferred_location[0])
                 preferred_tab_index = int(preferred_location[1])
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                # Not a number, might be URL from new code
+                preferred_win_id = 0
+                preferred_tab_index = 0
 
         script = f'''
         tell application "Google Chrome"
@@ -120,30 +123,44 @@ class ChromeController:
                 return "NO_WINDOW"
             end if
 
-            if {preferred_win_index} > 0 and {preferred_tab_index} > 0 then
-                try
-                    set pw to window {preferred_win_index}
-                    set pt to tab {preferred_tab_index} of pw
-                    if (URL of pt contains "{self.url_pattern}") or (title of pt contains "{self.title_pattern}") then
-                        set res to execute pt javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-                        return "SUCCESS:" & res
+            -- If preferred window ID is provided, try it first
+            if {preferred_win_id} > 0 and {preferred_tab_index} > 0 then
+                set foundWin to missing value
+                set targetWinId to {preferred_win_id} as integer
+
+                repeat with win in windows
+                    set currentWinId to (id of win) as integer
+                    if currentWinId = targetWinId then
+                        set foundWin to win
+                        exit repeat
                     end if
-                end try
+                end repeat
+
+                if foundWin is not missing value then
+                    try
+                        set pt to tab {preferred_tab_index} of foundWin
+                        set res to execute pt javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
+                        return "SUCCESS:USED_WIN_ID=" & {preferred_win_id} & ":" & res
+                    on error errMsg
+                        -- Tab access failed, fall through to fallback
+                    end try
+                end if
             end if
-            
+
+            -- Fallback: search all windows for matching tab
             repeat with win in windows
                 set tIdx to 1
                 repeat with t in tabs of win
                     try
                         if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
                             set res to execute t javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-                            return "SUCCESS:" & res
+                            return "SUCCESS:FALLBACK_WIN_ID=" & (id of win) & ":" & res
                         end if
                     end try
                     set tIdx to tIdx + 1
                 end repeat
             end repeat
-            
+
             if "{open_url}" is not "None" then
                 make new tab at window 1 with properties {{URL:"{open_url}"}}
                 return "OPENING_NEW_TAB"
@@ -151,7 +168,9 @@ class ChromeController:
             return "NOT_FOUND"
         end tell
         '''
-        return run_applescript(script)
+        result = run_applescript(script)
+        print(f"[Debug _execute_js] preferred_win_id={preferred_win_id}, result={result[:200]}")
+        return result
 
     def is_front_tab_match(self) -> bool:
         return self.get_front_tab_location() is not None
@@ -216,17 +235,28 @@ class ChatGPTChrome(ChromeController):
         """Stop dictation by clicking Submit dictation button to finish and keep transcribed text."""
         js = '''
         (function() {
+            // Return window ID for debugging
+            var winInfo = "UNKNOWN";
+            try {
+                winInfo = window.location.href;
+            } catch(e) {}
+
             var buttons = Array.from(document.querySelectorAll('button'));
             // Submit dictation button - finishes recording and keeps transcribed text
             var btn = buttons.find(b =>
                 (b.ariaLabel && b.ariaLabel.includes('Submit dictation')) ||
                 b.querySelector('svg path[d*="M20 6L9 17l-5-5"]')
             );
-            if (btn) { btn.click(); return "SUBMIT_CLICKED"; }
-            return "SUBMIT_BTN_NOT_FOUND";
+            if (btn) {
+                btn.click();
+                return "SUBMIT_CLICKED:URL=" + winInfo;
+            }
+            return "SUBMIT_BTN_NOT_FOUND:URL=" + winInfo;
         })()
         '''
-        return self._execute_js(js, preferred_location)
+        result = self._execute_js(js, preferred_location)
+        print(f"[Debug stop_dictation] preferred_location={preferred_location}, result={result}")
+        return result
 
     def cancel_dictation(self, preferred_location=None):
         js = '''
@@ -258,32 +288,41 @@ class ChatGPTChrome(ChromeController):
         '''
         if not activate_first:
             return self._execute_js(js_code, preferred_location)
-        
+
         b64_js = base64.b64encode(js_code.encode('utf-8')).decode('utf-8')
-        win_idx, tab_idx = preferred_location if preferred_location else (0, 0)
-        
+        win_id, tab_idx = preferred_location if preferred_location else (0, 0)
+
         script = f'''
         tell application "Google Chrome"
             set originalWin to front window
             set originalTabIndex to active tab index of originalWin
-            
+
             set targetWin to missing value
             set targetTab to missing value
             set targetTabIndex to 0
 
-            if {win_idx} > 0 then
+            -- Find window by ID
+            if {win_id} > 0 and {tab_idx} > 0 then
                 try
-                    set targetWin to window {win_idx}
-                    set targetTab to tab {tab_idx} of targetWin
-                    set targetTabIndex to {tab_idx}
+                    set targetWinId to {win_id} as integer
+                    repeat with win in windows
+                        set currentWinId to (id of win) as integer
+                        if currentWinId = targetWinId then
+                            set targetWin to win
+                            set targetTab to tab {tab_idx} of targetWin
+                            set targetTabIndex to {tab_idx}
+                            exit repeat
+                        end if
+                    end repeat
                 end try
             end if
 
+            -- Fallback: search for matching tab
             if targetTab is missing value then
                 repeat with win in windows
                     set tIdx to 1
                     repeat with t in tabs of win
-                        if (URL of t contains "chatgpt.com") or (title of t contains "ChatGPT") then
+                        if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
                             set targetWin to win
                             set targetTab to t
                             set targetTabIndex to tIdx
@@ -301,7 +340,7 @@ class ChatGPTChrome(ChromeController):
             set index of targetWin to 1
             delay 0.15
             set res to execute targetTab javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-            
+
             try
                 set index of originalWin to 1
                 set active tab index of originalWin to originalTabIndex
@@ -431,7 +470,7 @@ class GeminiChrome(ChromeController):
             return self._execute_js(js_code, preferred_location)
 
         b64_js = base64.b64encode(js_code.encode('utf-8')).decode('utf-8')
-        win_idx, tab_idx = preferred_location if preferred_location else (0, 0)
+        win_id, tab_idx = preferred_location if preferred_location else (0, 0)
 
         script = f'''
         tell application "Google Chrome"
@@ -442,14 +481,23 @@ class GeminiChrome(ChromeController):
             set targetTab to missing value
             set targetTabIndex to 0
 
-            if {win_idx} > 0 then
+            -- Find window by ID
+            if {win_id} > 0 and {tab_idx} > 0 then
                 try
-                    set targetWin to window {win_idx}
-                    set targetTab to tab {tab_idx} of targetWin
-                    set targetTabIndex to {tab_idx}
+                    set targetWinId to {win_id} as integer
+                    repeat with win in windows
+                        set currentWinId to (id of win) as integer
+                        if currentWinId = targetWinId then
+                            set targetWin to win
+                            set targetTab to tab {tab_idx} of targetWin
+                            set targetTabIndex to {tab_idx}
+                            exit repeat
+                        end if
+                    end repeat
                 end try
             end if
 
+            -- Fallback: search for matching tab
             if targetTab is missing value then
                 repeat with win in windows
                     set tIdx to 1

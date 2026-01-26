@@ -326,7 +326,9 @@ class MicPipeApp(rumps.App):
                 else:
                     location = self.chrome.get_gemini_tab_location()
             self.service_tab_location = location
-        except Exception:
+            print(f"[Debug] Recorded tab location: {location}")  # Debug output
+        except Exception as e:
+            print(f"[Debug] Failed to record tab location: {e}")  # Debug output
             self.service_tab_location = None
 
         # 2. Update status and state
@@ -430,6 +432,7 @@ class MicPipeApp(rumps.App):
         self.current_state = "PROCESSING"
         self.status_item.title = "Status: ⏳ Transcribing..."
 
+        print(f"[Debug] Stopping dictation at location: {self.service_tab_location}")  # Debug output
         self.chrome.stop_dictation(preferred_location=self.service_tab_location)
 
         # If we're already on the service page, don't extract/clear/paste. Leaving the text
@@ -439,19 +442,19 @@ class MicPipeApp(rumps.App):
             self.status_item.title = "Status: Ready"
             return
 
-        # Poll for transcribed text (max 15 seconds)
-        # Start immediately without delay for faster response
+        # Poll for transcribed text (max 5 attempts)
         text = ""
         force_activate = True
-        max_attempts = 15
+        max_attempts = 5
 
         for i in range(max_attempts):
-            # First 3 attempts: quick retry (0.5s)
-            # Subsequent attempts: standard interval (1.0s)
-            if i < 3:
-                time.sleep(0.5)
+            # Progressive retry intervals
+            if i == 0:
+                time.sleep(1.0)  # First attempt: wait 1s for transcription to complete
+            elif i < 3:
+                time.sleep(0.5)  # 2nd-3rd attempts: quick retry
             else:
-                time.sleep(1.0)
+                time.sleep(1.0)  # 4th-5th attempts: standard interval
 
             res = self.chrome.get_text_and_clear(
                 activate_first=force_activate,
