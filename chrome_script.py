@@ -142,8 +142,22 @@ class ChromeController:
                 if foundWin is not missing value then
                     try
                         set pt to tab {preferred_tab_index} of foundWin
-                        set res to execute pt javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-                        return "SUCCESS:USED_WIN_ID=" & {preferred_win_id} & ":" & res
+                        -- Verify the preferred tab is still the right service tab.
+                        -- Tab indices are not stable if the user reorders/moves tabs, so we must not
+                        -- "succeed" on an unrelated tab.
+                        set ptUrl to ""
+                        set ptTitle to ""
+                        try
+                            set ptUrl to (URL of pt) as text
+                        end try
+                        try
+                            set ptTitle to (title of pt) as text
+                        end try
+
+                        if (ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}") then
+                            set res to execute pt javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
+                            return "SUCCESS:USED_WIN_ID=" & {preferred_win_id} & ",TAB=" & {preferred_tab_index} & ":" & res
+                        end if
                     on error errMsg
                         -- Tab access failed, fall through to fallback
                     end try
@@ -157,7 +171,7 @@ class ChromeController:
                     try
                         if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
                             set res to execute t javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-                            return "SUCCESS:FALLBACK_WIN_ID=" & (id of win) & ":" & res
+                            return "SUCCESS:FALLBACK_WIN_ID=" & (id of win) & ",TAB=" & tIdx & ":" & res
                         end if
                     end try
                     set tIdx to tIdx + 1
@@ -245,7 +259,8 @@ class ChatGPTChrome(ChromeController):
             } catch(e) {}
 
             var buttons = Array.from(document.querySelectorAll('button'));
-            // Submit dictation button - finishes recording and keeps transcribed text
+            // Submit dictation button - finishes recording and keeps transcribed text.
+            // If this selector fails due to UI/locale changes, the caller should notify the user.
             var btn = buttons.find(b =>
                 (b.ariaLabel && b.ariaLabel.includes('Submit dictation')) ||
                 b.querySelector('svg path[d*="M20 6L9 17l-5-5"]')
@@ -275,18 +290,110 @@ class ChatGPTChrome(ChromeController):
     def get_text_and_clear(self, activate_first=True, preferred_location=None):
         js_code = '''
         (function() {
-            var textarea = document.querySelector('#prompt-textarea');
-            if (textarea) {
-                var text = textarea.value || textarea.innerText || textarea.textContent || "";
-                if (!text.trim()) return "EMPTY";
-                textarea.value = "";
-                textarea.innerText = "";
-                textarea.innerHTML = "";
-                textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                textarea.dispatchEvent(new Event('change', { bubbles: true }));
-                return text.trim();
+            function diag(payload) {
+                try { return JSON.stringify(payload); } catch (e) { return String(payload); }
             }
-            return "NOT_FOUND";
+
+            function isVisible(el) {
+                try {
+                    if (!el) return false;
+                    var r = el.getBoundingClientRect();
+                    return !!(r && r.width > 0 && r.height > 0);
+                } catch (e) {
+                    return false;
+                }
+            }
+
+            function findComposerBox() {
+                // 1) Known stable IDs / test IDs (varies by rollout)
+                var el = document.querySelector('#prompt-textarea');
+                if (el) return { el: el, via: '#prompt-textarea' };
+
+                el = document.querySelector('[data-testid="prompt-textarea"]');
+                if (el) return { el: el, via: '[data-testid=\"prompt-textarea\"]' };
+
+                // 2) Prefer the textbox inside the form that owns the send button (less ambiguity)
+                var sendBtn = document.querySelector('button[data-testid="send-button"]');
+                if (sendBtn && sendBtn.closest) {
+                    var form = sendBtn.closest('form');
+                    if (form) {
+                        el =
+                            form.querySelector('#prompt-textarea') ||
+                            form.querySelector('[data-testid="prompt-textarea"]') ||
+                            form.querySelector('textarea') ||
+                            form.querySelector('div[contenteditable="true"][role="textbox"]') ||
+                            form.querySelector('div[contenteditable="true"]');
+                        if (el) return { el: el, via: 'send-button.closest(form)' };
+                    }
+                }
+
+                // 3) Last resort: pick a visible textarea/contenteditable textbox
+                var candidates = []
+                    .concat(Array.from(document.querySelectorAll('textarea')))
+                    .concat(Array.from(document.querySelectorAll('div[contenteditable="true"][role="textbox"]')))
+                    .concat(Array.from(document.querySelectorAll('div[contenteditable="true"]')));
+
+                for (var i = 0; i < candidates.length; i++) {
+                    if (isVisible(candidates[i])) return { el: candidates[i], via: 'visible-candidate' };
+                }
+                return null;
+            }
+
+            var found = findComposerBox();
+            if (!found || !found.el) {
+                return "NOT_FOUND|DBG=" + diag({
+                    href: (function(){ try { return location.href; } catch(e) { return null; } })(),
+                    title: (function(){ try { return document.title; } catch(e) { return null; } })(),
+                    promptTextareas: document.querySelectorAll('#prompt-textarea').length,
+                    testidTextareas: document.querySelectorAll('[data-testid="prompt-textarea"]').length,
+                    sendButtons: document.querySelectorAll('button[data-testid="send-button"]').length,
+                });
+            }
+            var box = found.el;
+
+            // Ensure the composer is focused; in some UI states transcription is only materialized after focus.
+            try { box.focus(); } catch(e) {}
+
+            var text = "";
+            try {
+                if (typeof box.value === 'string') text = box.value;
+                if (!text) text = box.innerText || box.textContent || "";
+            } catch(e) {}
+
+            if (!text || !text.trim()) {
+                var valLen = 0;
+                var innerLen = 0;
+                try { valLen = (typeof box.value === 'string') ? box.value.length : 0; } catch(e) {}
+                try { innerLen = (box.innerText || box.textContent || "").length; } catch(e) {}
+                return "EMPTY|DBG=" + diag({
+                    href: (function(){ try { return location.href; } catch(e) { return null; } })(),
+                    title: (function(){ try { return document.title; } catch(e) { return null; } })(),
+                    via: found.via,
+                    tag: (function(){ try { return box.tagName; } catch(e) { return null; } })(),
+                    id: (function(){ try { return box.id; } catch(e) { return null; } })(),
+                    dataTestid: (function(){ try { return box.getAttribute('data-testid'); } catch(e) { return null; } })(),
+                    isVisible: isVisible(box),
+                    valLen: valLen,
+                    innerLen: innerLen,
+                });
+            }
+
+            // Clear composer
+            try {
+                if (typeof box.value === 'string') box.value = "";
+            } catch(e) {}
+            try {
+                box.innerText = "";
+                box.textContent = "";
+                box.innerHTML = "";
+            } catch(e) {}
+
+            try {
+                box.dispatchEvent(new Event('input', { bubbles: true }));
+                box.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch(e) {}
+
+            return text.trim();
         })()
         '''
         if not activate_first:
@@ -318,6 +425,24 @@ class ChatGPTChrome(ChromeController):
                         end if
                     end repeat
                 end try
+            end if
+
+            -- Validate the preferred tab is still the right service tab.
+            -- If it is not, clear it so the fallback search can find the correct tab.
+            if targetTab is not missing value then
+                set ptUrl to ""
+                set ptTitle to ""
+                try
+                    set ptUrl to (URL of targetTab) as text
+                end try
+                try
+                    set ptTitle to (title of targetTab) as text
+                end try
+                if not ((ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}")) then
+                    set targetWin to missing value
+                    set targetTab to missing value
+                    set targetTabIndex to 0
+                end if
             end if
 
             -- Fallback: search for matching tab
@@ -498,6 +623,24 @@ class GeminiChrome(ChromeController):
                         end if
                     end repeat
                 end try
+            end if
+
+            -- Validate the preferred tab is still the right service tab.
+            -- If it is not, clear it so the fallback search can find the correct tab.
+            if targetTab is not missing value then
+                set ptUrl to ""
+                set ptTitle to ""
+                try
+                    set ptUrl to (URL of targetTab) as text
+                end try
+                try
+                    set ptTitle to (title of targetTab) as text
+                end try
+                if not ((ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}")) then
+                    set targetWin to missing value
+                    set targetTab to missing value
+                    set targetTabIndex to 0
+                end if
             end if
 
             -- Fallback: search for matching tab

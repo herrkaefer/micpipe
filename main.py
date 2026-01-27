@@ -3,6 +3,7 @@ import time
 import os
 import Quartz
 import threading
+import re
 import rumps
 from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps, NSSound
 from chrome_script import ChatGPTChrome, GeminiChrome
@@ -43,6 +44,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 class MicPipeApp(rumps.App):
+    _TAB_LOC_RE = re.compile(r"(?:USED_WIN_ID|FALLBACK_WIN_ID)=(\d+),TAB=(\d+):")
+
     def __init__(self):
         super(MicPipeApp, self).__init__("MicPipe", quit_button="Quit")
         self.base_path = os.path.dirname(__file__)
@@ -111,6 +114,24 @@ class MicPipeApp(rumps.App):
         # Animation timer (runs at 10Hz)
         self.timer = rumps.Timer(self._update_animation, 0.1)
         self.timer.start()
+
+    def _update_service_tab_location_from_result(self, result: str):
+        """Update self.service_tab_location when Chrome reports the actual window/tab used."""
+        if not result:
+            return
+        m = self._TAB_LOC_RE.search(result)
+        if not m:
+            return
+        try:
+            win_id = int(m.group(1))
+            tab_idx = int(m.group(2))
+        except Exception:
+            return
+        if win_id > 0 and tab_idx > 0:
+            old = self.service_tab_location
+            self.service_tab_location = (win_id, tab_idx)
+            if old != self.service_tab_location:
+                logger.debug(f"Updated service_tab_location: {old} -> {self.service_tab_location}")
 
     def _ensure_service_tab(self):
         """Ensure the current service tab exists at startup."""
@@ -353,6 +374,7 @@ class MicPipeApp(rumps.App):
         # 3. Start Chrome dictation
         res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
         if res.startswith("SUCCESS") and "OPENING" not in res:
+            self._update_service_tab_location_from_result(res)
             self.is_recording = True
             self._play_sound(self._sound_start)
         elif "OPENING" in res:
@@ -372,6 +394,15 @@ class MicPipeApp(rumps.App):
             # Poll for page readiness instead of fixed wait
             threading.Thread(target=self._wait_and_start_recording).start()
             return
+        else:
+            # Failed to start; inform the user so they know why nothing happened.
+            self.current_state = "IDLE"
+            self.status_item.title = "Status: Ready"
+            rumps.notification(
+                "MicPipe",
+                "Start Failed",
+                f"Could not start {self.current_service} dictation. Details: {res or 'UNKNOWN'}"
+            )
 
         # 4. Restore focus
         if self.target_app:
@@ -422,6 +453,7 @@ class MicPipeApp(rumps.App):
 
         res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
         if res.startswith("SUCCESS"):
+            self._update_service_tab_location_from_result(res)
             self.is_recording = True
             self.current_state = "RECORDING"
             self.status_item.title = "Status: 🎤 Recording..."
@@ -448,7 +480,27 @@ class MicPipeApp(rumps.App):
         self.status_item.title = "Status: ⏳ Transcribing..."
 
         logger.debug(f"Stopping dictation at location: {self.service_tab_location}")
-        self.chrome.stop_dictation(preferred_location=self.service_tab_location)
+        stop_res = ""
+        try:
+            stop_res = self.chrome.stop_dictation(preferred_location=self.service_tab_location)
+        except Exception as e:
+            stop_res = f"EXCEPTION:{e}"
+
+        if stop_res.startswith("SUCCESS"):
+            # If the tab moved to a new window during recording, the stop call might have found it
+            # via fallback scanning. Capture that concrete location for text retrieval.
+            self._update_service_tab_location_from_result(stop_res)
+
+        if (not stop_res) or ("NOT_FOUND" in stop_res) or ("BTN_NOT_FOUND" in stop_res):
+            self.current_state = "IDLE"
+            self.status_item.title = "Status: Ready"
+            rumps.notification(
+                "MicPipe",
+                "Stop Failed",
+                f"Could not stop {self.current_service} dictation automatically. "
+                f"It may still be recording in Chrome. Details: {stop_res or 'UNKNOWN'}"
+            )
+            return
 
         # If we're already on the service page, don't extract/clear/paste. Leaving the text
         # in the input box is the expected behavior.
@@ -479,6 +531,16 @@ class MicPipeApp(rumps.App):
             force_activate = False
             if res.startswith("SUCCESS:"):
                 content = res.split("SUCCESS:", 1)[1]
+                # Debuggable empty states from the page:
+                # - "EMPTY"
+                # - "EMPTY|DBG=..."
+                # - "NOT_FOUND"
+                # - "NOT_FOUND|DBG=..."
+                if content.startswith("EMPTY|DBG=") or content.startswith("NOT_FOUND|DBG="):
+                    logger.debug(content)
+                    force_activate = True
+                    continue
+
                 if content and content not in ["EMPTY", "NOT_FOUND", "SUCCESS", "missing value"]:
                     text = content
                     logger.debug(f"Got text: {text[:50]}...")
