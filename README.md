@@ -1,7 +1,11 @@
-# <img src="assets/logo.png" width="80" vertical-align="bottom"> MicPipe `v1.0.0`
+<img src="assets/logo.png" width="256">
+
+# MicPipe 
+
+Current version: `v1.0.0`
 
 
-[中文说明](README.zh-CN.md)
+[中文](README.zh-CN.md)
 
 ## Overview
 
