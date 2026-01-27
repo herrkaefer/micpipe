@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.1.0`
+Current version: `v1.2.0`
 
 
 [English](README.md)

@@ -30,7 +30,7 @@ from paste_tool import paste_text
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 TRIGGER_KEY_CODE = 63  # Fn key (supports both Hold and Toggle modes)
