@@ -91,6 +91,7 @@ class MicPipeApp(rumps.App):
 
         # Ensure dedicated window exists at startup (in background)
         self._ensure_dedicated_window()
+        threading.Thread(target=self._check_service_ready_on_startup).start()
 
         # Build menu
         key_name = self._get_key_name(TRIGGER_KEY_CODE)
@@ -136,6 +137,24 @@ class MicPipeApp(rumps.App):
 
     def _save_state(self):
         self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows)
+
+    def _get_ready_status(self, res: str) -> str:
+        if not res or not res.startswith("SUCCESS"):
+            return ""
+        return res.rsplit(":", 1)[-1]
+
+    def _prompt_service_login(self, details: str):
+        location = self.service_tab_location or self.dedicated_windows.get(self.current_service)
+        if location:
+            try:
+                self.chrome.reveal_window(location[0])
+            except Exception:
+                pass
+        rumps.notification(
+            "MicPipe",
+            f"{self.current_service} 登录/权限问题",
+            details
+        )
 
     def _update_service_tab_location_from_result(self, result: str):
         """Update self.service_tab_location when Chrome reports the actual window/tab used."""
@@ -374,6 +393,27 @@ class MicPipeApp(rumps.App):
             time.sleep(0.1)
             self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
 
+    def _check_service_ready_on_startup(self):
+        """On app launch, verify that the service page is usable and prompt if not."""
+        max_wait_time = 20
+        poll_interval = 0.5
+        elapsed = 0
+
+        while elapsed < max_wait_time:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+            if not self.service_tab_location:
+                return
+
+            res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
+            status = self._get_ready_status(res)
+            if status == "READY":
+                return
+            if status == "BTN_NOT_FOUND":
+                self._prompt_service_login("请在专属窗口登录后再试一次。")
+                return
+
     def start_recording(self, is_hold_mode=False):
         """Start recording (for both Hold and Toggle modes)"""
         if self.is_recording:
@@ -402,8 +442,14 @@ class MicPipeApp(rumps.App):
 
         # If the page is still loading, wait before starting dictation
         ready_res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
-        if ready_res.startswith("SUCCESS") and "PAGE_NOT_READY" in ready_res:
+        status = self._get_ready_status(ready_res)
+        if status == "PAGE_NOT_READY":
             self._enter_waiting_state(is_hold_mode)
+            return
+        if status == "BTN_NOT_FOUND":
+            self.current_state = "IDLE"
+            self.status_item.title = "Status: Ready"
+            self._prompt_service_login("请在专属窗口登录后再试一次。")
             return
 
         # 3. Update status and state
@@ -450,10 +496,7 @@ class MicPipeApp(rumps.App):
 
             # Check if page is ready
             res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
-            if res.startswith("SUCCESS"):
-                status = res.rsplit(":", 1)[-1]
-            else:
-                status = ""
+            status = self._get_ready_status(res)
             if status == "READY":
                 # Page is ready, check again if we should still start
                 if self.should_auto_start:
@@ -462,6 +505,13 @@ class MicPipeApp(rumps.App):
                     self.waiting_for_page = False
                     self.current_state = "IDLE"
                     self.status_item.title = "Status: Ready"
+                return
+            if status == "BTN_NOT_FOUND":
+                self.waiting_for_page = False
+                self.should_auto_start = False
+                self.current_state = "IDLE"
+                self.status_item.title = "Status: Ready"
+                self._prompt_service_login("录音按钮不可用，请登录或检查权限后重试。")
                 return
 
         # Timeout: page didn't load in time

@@ -107,6 +107,36 @@ class ChromeController:
         res = run_applescript(script)
         return res == "OK"
 
+    def reveal_window(self, window_id, bounds=(60, 60, 1100, 800)) -> bool:
+        """Resize and bring a Chrome window to the front."""
+        try:
+            win_id = int(window_id)
+        except (ValueError, TypeError):
+            return False
+        if win_id <= 0:
+            return False
+        script = f'''
+        tell application "Google Chrome"
+            if (count of windows) = 0 then return "NO_WINDOW"
+            set targetWin to missing value
+            set targetWinId to {win_id} as integer
+            repeat with win in windows
+                set currentWinId to (id of win) as integer
+                if currentWinId = targetWinId then
+                    set targetWin to win
+                    exit repeat
+                end if
+            end repeat
+            if targetWin is missing value then return "NOT_FOUND"
+            set bounds of targetWin to {{{bounds[0]}, {bounds[1]}, {bounds[2]}, {bounds[3]}}}
+            set index of targetWin to 1
+            activate
+            return "OK"
+        end tell
+        '''
+        res = run_applescript(script)
+        return res == "OK"
+
     def get_tab_location(self):
         """Return (window_id, tab_index) for the first matching tab, or None."""
         script = f'''
