@@ -1,4 +1,4 @@
-# <img src="assets/logo.png" width="80" vertical-align="bottom"> MicPipe
+# <img src="assets/logo.png" width="80" vertical-align="bottom"> MicPipe `v1.0.0`
 
 
 [English](README.md)

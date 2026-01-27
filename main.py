@@ -28,6 +28,8 @@ from paste_tool import paste_text
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
+__version__ = "1.0.0"
+
 
 TRIGGER_KEY_CODE = 63  # Fn key (supports both Hold and Toggle modes)
 
@@ -89,6 +91,7 @@ class MicPipeApp(rumps.App):
         self.toggle_mode_info = rumps.MenuItem(f"  Click {key_name} → Toggle Start/Stop", callback=None)
         self.cancel_mode_info = rumps.MenuItem("  Press Esc → Cancel Dictation", callback=None)
         self.sound_toggle_item = rumps.MenuItem("Sound: On", callback=self.toggle_sound)
+        self.version_info = rumps.MenuItem(f"Version: {__version__}", callback=None)
 
         self.menu = [
             self.status_item,
@@ -100,7 +103,9 @@ class MicPipeApp(rumps.App):
             self.toggle_mode_info,
             self.cancel_mode_info,
             None,  # Separator
-            self.sound_toggle_item
+            self.sound_toggle_item,
+            None,  # Separator
+            self.version_info
         ]
 
         # Animation timer (runs at 10Hz)
