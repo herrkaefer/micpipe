@@ -28,11 +28,11 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 
 ## Quick Start
 
-### Option 1: Premium Launch (No terminal window)
-Double-click **`MicPipe.app`** in the project folder. This is an AppleScript wrapper that runs the app in the background.
+### Option 1: Command Launch (Recommended)
+Double-click **`MicPipe.command`**. This script will launch the app in the background and automatically close the terminal window. It is the most reliable way to ensure the app has necessary permissions.
 
-### Option 2: Command Launch (With logging)
-Double-click **`MicPipe.command`**. This is useful if you want to see the debug logs in a terminal window.
+### Option 2: Premium Launch (Experimental)
+Double-click **`MicPipe.app`**. Note: This AppleScript wrapper might fail due to macOS privacy/permission restrictions on some systems.
 
 ### Option 3: Manual Launch
 ```bash
@@ -59,11 +59,11 @@ Enable **Allow JavaScript from Apple Events** in Chrome:
 
 ### 3. Run the app
 
-- **MicPipe.app**: Double-click for a silent, background experience (recommended).
-- **MicPipe.command**: Double-click to run with a visible terminal (best for debugging).
+- **MicPipe.command**: Double-click to run. This script handles permissions more reliably and will auto-close the terminal window once the app is running in the background (recommended).
+- **MicPipe.app**: Double-click for a silent experience. If this fails to start or doesn't show in the menu bar, please use the `.command` method instead.
 - **Terminal**: Run `uv run python main.py`.
 
-> **Note for first-time use**: Since this is an unsigned app, macOS might block it. If so, **Right-click** `MicPipe.app` (or `.command`) and select **Open**, then click **Open** again in the warning dialog.
+> **Note for first-time use**: Since this is an unsigned app, macOS might block it. If so, **Right-click** `MicPipe.app` (or `.command`) and select **Open**, then click **Open** again in the warning dialog. If the `.app` version still won't start after granting permissions, please stick with `MicPipe.command`.
 
 ## Usage
 
