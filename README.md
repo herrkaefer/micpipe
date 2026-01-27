@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.0.0`
+Current version: `v1.1.0`
 
 
 [中文](README.zh-CN.md)
@@ -21,6 +21,8 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 - Supports both **ChatGPT** and **Google Gemini** as transcription backends
 - Automatically returns focus to your original app and pastes the text
 - If recording starts from the service page (ChatGPT/Gemini), the text stays there (no round‑trip paste)
+- **Clipboard Preservation**: Automatically restores your original clipboard content after pasting
+
 
 ## Requirements
 

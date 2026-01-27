@@ -1,32 +1,27 @@
-import pyperclip
+import subprocess
 import time
-from Quartz.CoreGraphics import (
-    CGEventCreateKeyboardEvent,
-    CGEventPost,
-    kCGHIDEventTap,
-    kCGEventFlagMaskCommand
-)
 
-def paste_text(text):
-    """Put text into clipboard and simulate Cmd+V"""
+from clipboard_guard import overwrite_clipboard_with_text, restore_clipboard
+
+def paste_text(text, snapshot=None):
+    """Put text into clipboard, simulate Cmd+V, then restore clipboard."""
     if not text or text == "SUCCESS" or text == "CHATGPT_NOT_FOUND":
         return
-        
-    # 1. Put into clipboard
-    pyperclip.copy(text)
-    time.sleep(0.1)  # Give the system a bit of response time
-    
-    # 2. Simulate Command + V
-    # Key codes: V = 9, Command = kCGEventFlagMaskCommand
-    cmd_v_down = CGEventCreateKeyboardEvent(None, 9, True)
-    CGEventSetFlags(cmd_v_down, kCGEventFlagMaskCommand)
-    CGEventPost(kCGHIDEventTap, cmd_v_down)
-    
-    cmd_v_up = CGEventCreateKeyboardEvent(None, 9, False)
-    CGEventPost(kCGHIDEventTap, cmd_v_up)
 
-# Polyfill for missing import function
-def CGEventSetFlags(event, flags):
-    from Quartz.CoreGraphics import CGEventSetFlags as _CGEventSetFlags
-    _CGEventSetFlags(event, flags)
+    try:
+        # 1. Put into clipboard
+        overwrite_clipboard_with_text(text)
+        time.sleep(0.03)  # Give the system a bit of response time
 
+        # 2. Simulate Command + V via AppleScript
+        script = r'''
+        tell application "System Events"
+          keystroke "v" using {command down}
+        end tell
+        '''
+        subprocess.run(["osascript", "-e", script], check=True)
+    finally:
+        # 3. Restore clipboard (best-effort)
+        time.sleep(0.05)
+        if snapshot is not None:
+            restore_clipboard(snapshot)

@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.0.0`
+Current version: `v1.1.0`
 
 
 [English](README.md)
@@ -21,6 +21,8 @@ MicPipe 是一个 macOS 小应用，让你能够直接在任何应用程序中�
 - 同时支持 **ChatGPT** 和 **Google Gemini** 作为转写后端
 - 自动返回原应用并粘贴结果
 - 如果从服务页面（ChatGPT/Gemini）启动录音，文本保留在页面输入框内
+- **剪贴板保护**：粘贴完成后自动恢复你原有的剪贴板内容
+
 
 ## 运行环境
 

@@ -7,6 +7,7 @@ import re
 import rumps
 from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps, NSSound
 from chrome_script import ChatGPTChrome, GeminiChrome
+from clipboard_guard import snapshot_clipboard
 from paste_tool import paste_text
 
 # ============================================================
@@ -29,14 +30,14 @@ from paste_tool import paste_text
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 TRIGGER_KEY_CODE = 63  # Fn key (supports both Hold and Toggle modes)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -509,6 +510,9 @@ class MicPipeApp(rumps.App):
             self.status_item.title = "Status: Ready"
             return
 
+        # Take a clipboard snapshot while we wait for transcription
+        clipboard_snapshot = snapshot_clipboard()
+
         # Poll for transcribed text (max 5 attempts)
         text = ""
         force_activate = True
@@ -553,7 +557,7 @@ class MicPipeApp(rumps.App):
             if self.target_app:
                 self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
                 time.sleep(0.2)
-            paste_text(text)
+            paste_text(text, snapshot=clipboard_snapshot)
 
         self.current_state = "IDLE"
         self.status_item.title = "Status: Ready"
