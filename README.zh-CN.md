@@ -7,12 +7,18 @@
 
 MicPipe 是一个 macOS 小应用，让你能够直接在任何应用程序中使用 ChatGPT 网页版的语音输入功能。
 
+<p align="center">
+  <video src="demo/demo1.mp4" width="100%" controls></video>
+</p>
+
+
 ### 主要功能
 - 一个按键两种模式：**按住说话** 或 **点击开关**
 - 录音中按 **Esc** 可取消听写（不会粘贴）
 - 开始/结束提示音可在菜单中开关
+- 同时支持 **ChatGPT** 和 **Google Gemini** 作为转写后端
 - 自动返回原应用并粘贴结果
-- 如果从 ChatGPT 页面启动录音，文本保留在 ChatGPT 输入框内
+- 如果从服务页面（ChatGPT/Gemini）启动录音，文本保留在页面输入框内
 
 ## 运行环境
 
@@ -90,6 +96,11 @@ MicPipe 使用 **Fn 键**触发录音，支持两种操作方式：
 
 点击菜单中选项可开关提示音。
 
+<p align="left">
+  <img src="demo/menu.png" width="300" alt="Menu Status">
+</p>
+
+
 ### 自定义快捷键
 
 当前快捷键硬编码为 **Fn**（keycode 63）。如需更改，请编辑 `main.py` 第 31 行：
@@ -99,6 +110,17 @@ TRIGGER_KEY_CODE = 63  # 修改此值，代码注释中列出了常用键码
 ```
 
 > 暂不支持通过菜单修改快捷键。
+
+## 服务切换 (ChatGPT / Gemini)
+
+您可以通过菜单栏随时切换使用的转写服务：
+
+1. 点击菜单栏的 **MicPipe** 图标。
+2. 找到 **Service** 菜单项。
+3. 选择 **ChatGPT** 或 **Gemini**。
+
+- **ChatGPT**：支持完整功能，包括 Esc 取消。
+- **Gemini**：支持语音转录，但由于 Gemini 网页版的技术限制，目前暂不支持通过 **Esc** 键取消录音。
 
 ## 权限说明（重要）
 
@@ -147,3 +169,7 @@ TRIGGER_KEY_CODE = 63  # 修改此值，代码注释中列出了常用键码
 - macOS 10.14+
 - Python 3.11+
 - Google Chrome
+
+## 开源协议
+
+本项目采用 **GNU General Public License v3 (GPLv3)** 开源协议。详情请参阅 [LICENSE](LICENSE) 文件。

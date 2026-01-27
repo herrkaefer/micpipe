@@ -7,12 +7,18 @@
 
 MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dictation feature directly within any application.
 
+<p align="center">
+  <video src="demo/demo1.mp4" width="100%" controls></video>
+</p>
+
+
 ### Key features
 - One key, two modes: **hold to speak** or **click to toggle**
 - Press **Esc** during recording to cancel dictation (no paste)
 - Optional start/stop sound cue (menu toggle)
+- Supports both **ChatGPT** and **Google Gemini** as transcription backends
 - Automatically returns focus to your original app and pastes the text
-- If recording starts from ChatGPT, the text stays there (no round‑trip paste)
+- If recording starts from the service page (ChatGPT/Gemini), the text stays there (no round‑trip paste)
 
 ## Requirements
 
@@ -90,6 +96,11 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 
 Click the menu item to toggle sound cues.
 
+<p align="left">
+  <img src="demo/menu.png" width="300" alt="Menu Status">
+</p>
+
+
 ### Custom Hotkey
 
 The hotkey is currently hardcoded to **Fn** (keycode 63). To change it, edit line 31 in `main.py`:
@@ -99,6 +110,17 @@ TRIGGER_KEY_CODE = 63  # Change this value; common keycodes are listed in commen
 ```
 
 > Changing the hotkey via the menu is not supported.
+
+## Service Selection (ChatGPT / Gemini)
+
+You can switch between transcription services via the menu bar:
+
+1. Click the **MicPipe** icon in the menu bar.
+2. Go to **Service**.
+3. Select **ChatGPT** or **Gemini**.
+
+- **ChatGPT**: Supports full features including "Cancel" (Esc).
+- **Gemini**: Supports dictation, but does not currently support the "Cancel" (Esc) key due to technical limitations of the Gemini web interface.
 
 ## Permissions (important)
 
@@ -147,3 +169,7 @@ We explored several technical paths before settling on the current AppleScript b
 - macOS 10.14+
 - Python 3.11+
 - Google Chrome
+
+## License
+
+This project is licensed under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
