@@ -14,6 +14,14 @@ then
     exit 1
 fi
 
-# Run the application using uv
-# This handles the environment and dependencies automatically
-uv run python main.py
+# Run the application in the background
+export PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+nohup uv run python main.py > /tmp/micpipe.log 2>&1 &
+
+echo "🚀 MicPipe is starting in the background..."
+echo "📂 Logs are being written to /tmp/micpipe.log"
+
+# Wait a moment and then close the Terminal window
+sleep 1
+osascript -e 'tell application "Terminal" to close front window' &
+exit
