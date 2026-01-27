@@ -9,6 +9,7 @@ from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps, NSSound
 from chrome_script import ChatGPTChrome, GeminiChrome
 from clipboard_guard import snapshot_clipboard
 from paste_tool import paste_text
+from state_manager import MicPipeStateStore
 
 # ============================================================
 # HOTKEY CONFIGURATION - Change the keycode below to customize
@@ -52,19 +53,30 @@ class MicPipeApp(rumps.App):
         self.base_path = os.path.dirname(__file__)
         self.icon = os.path.join(self.base_path, "assets/icon_idle_template.png")
         self.template = True  # Enable template mode for idle icon
+        self.state_path = os.path.join(
+            os.path.expanduser("~"),
+            "Library",
+            "Application Support",
+            "MicPipe",
+            "micpipe_state.json",
+        )
+        self.state_store = MicPipeStateStore(self.state_path, logger)
 
         # Service selection (ChatGPT or Gemini)
         self.current_service = "ChatGPT"  # Default service
+        self.sound_enabled = True
+        self.dedicated_windows = {"ChatGPT": None, "Gemini": None}
+        state = self.state_store.load()
+        self.current_service = state["current_service"]
+        self.sound_enabled = state["sound_enabled"]
+        self.dedicated_windows = state["dedicated_windows"]
         self.chatgpt_chrome = ChatGPTChrome()
         self.gemini_chrome = GeminiChrome()
-        self.chrome = self.chatgpt_chrome  # Active controller
+        self.chrome = self.chatgpt_chrome if self.current_service == "ChatGPT" else self.gemini_chrome  # Active controller
 
         self.is_recording = False
         self.current_state = "IDLE"
         self.animation_frame = 0
-
-        # Ensure service tab exists at startup (in background)
-        self._ensure_service_tab()
 
         # Internal state
         self.target_app = None
@@ -72,10 +84,13 @@ class MicPipeApp(rumps.App):
         self.trigger_key_currently_pressed = False
         self.should_auto_start = False
         self.waiting_for_page = False
-        self.service_tab_location = None  # Renamed from chatgpt_tab_location
+        self.service_tab_location = None  # Dedicated window location
+        self.dedicated_window = None
         self._sound_start = os.path.join(self.base_path, "assets", "sound_start.wav")
         self._sound_stop = os.path.join(self.base_path, "assets", "sound_stop.wav")
-        self.sound_enabled = True
+
+        # Ensure dedicated window exists at startup (in background)
+        self._ensure_dedicated_window()
 
         # Build menu
         key_name = self._get_key_name(TRIGGER_KEY_CODE)
@@ -83,9 +98,9 @@ class MicPipeApp(rumps.App):
 
         # Service selection submenu
         self.service_chatgpt = rumps.MenuItem("ChatGPT", callback=self.select_chatgpt)
-        self.service_chatgpt.state = 1  # Checked by default
+        self.service_chatgpt.state = 1 if self.current_service == "ChatGPT" else 0
         self.service_gemini = rumps.MenuItem("Gemini", callback=self.select_gemini)
-        self.service_gemini.state = 0
+        self.service_gemini.state = 1 if self.current_service == "Gemini" else 0
         self.service_menu = rumps.MenuItem("Service")
         self.service_menu.add(self.service_chatgpt)
         self.service_menu.add(self.service_gemini)
@@ -94,7 +109,10 @@ class MicPipeApp(rumps.App):
         self.hold_mode_info = rumps.MenuItem(f"  Hold {key_name} → Hold to Speak", callback=None)
         self.toggle_mode_info = rumps.MenuItem(f"  Click {key_name} → Toggle Start/Stop", callback=None)
         self.cancel_mode_info = rumps.MenuItem("  Press Esc → Cancel Dictation", callback=None)
-        self.sound_toggle_item = rumps.MenuItem("Sound: On", callback=self.toggle_sound)
+        self.sound_toggle_item = rumps.MenuItem(
+            "Sound: On" if self.sound_enabled else "Sound: Off",
+            callback=self.toggle_sound
+        )
         self.version_info = rumps.MenuItem(f"Version: {__version__}", callback=None)
 
         self.menu = [
@@ -116,6 +134,9 @@ class MicPipeApp(rumps.App):
         self.timer = rumps.Timer(self._update_animation, 0.1)
         self.timer.start()
 
+    def _save_state(self):
+        self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows)
+
     def _update_service_tab_location_from_result(self, result: str):
         """Update self.service_tab_location when Chrome reports the actual window/tab used."""
         if not result:
@@ -131,27 +152,39 @@ class MicPipeApp(rumps.App):
         if win_id > 0 and tab_idx > 0:
             old = self.service_tab_location
             self.service_tab_location = (win_id, tab_idx)
+            self.dedicated_window = self.service_tab_location
+            self.dedicated_windows[self.current_service] = self.service_tab_location
+            self._save_state()
             if old != self.service_tab_location:
                 logger.debug(f"Updated service_tab_location: {old} -> {self.service_tab_location}")
 
-    def _ensure_service_tab(self):
-        """Ensure the current service tab exists at startup."""
+    def _ensure_dedicated_window(self):
+        """Ensure the dedicated window exists for the current service."""
         try:
-            if self.current_service == "ChatGPT":
-                result = self.chatgpt_chrome.ensure_chatgpt_tab_exists()
-                service_name = "ChatGPT"
-            else:
-                result = self.gemini_chrome.ensure_gemini_tab_exists()
-                service_name = "Gemini"
-            logger.info(f"{service_name} tab check: {result}")
-            if "CREATED" in result:
-                rumps.notification(
-                    "MicPipe",
-                    f"{service_name} Page Opened",
-                    f"Please keep the {service_name} tab open for voice input to work."
-                )
+            chrome = self.chatgpt_chrome if self.current_service == "ChatGPT" else self.gemini_chrome
+            service_name = self.current_service
+
+            location = self.dedicated_windows.get(service_name)
+            if location and chrome.is_window_alive(*location):
+                self.dedicated_window = location
+                self.service_tab_location = location
+                self._save_state()
+                return location, False
+
+            new_location = chrome.create_dedicated_window()
+            if new_location:
+                self.dedicated_windows[service_name] = new_location
+                self.dedicated_window = new_location
+                self.service_tab_location = new_location
+                logger.info(f"{service_name} dedicated window created: {new_location}")
+                self._save_state()
+                return new_location, True
+
+            logger.error(f"Failed to create dedicated window for {service_name}")
+            return None, False
         except Exception as e:
-            logger.error(f"Failed to check service tab: {e}")
+            logger.error(f"Failed to ensure dedicated window: {e}")
+            return None, False
 
     def select_chatgpt(self, _):
         """Switch to ChatGPT service."""
@@ -162,7 +195,8 @@ class MicPipeApp(rumps.App):
         self.service_chatgpt.state = 1
         self.service_gemini.state = 0
         self.cancel_mode_info.title = "  Press Esc → Cancel Dictation"
-        self._ensure_service_tab()
+        self._save_state()
+        self._ensure_dedicated_window()
 
     def select_gemini(self, _):
         """Switch to Gemini service."""
@@ -173,7 +207,8 @@ class MicPipeApp(rumps.App):
         self.service_chatgpt.state = 0
         self.service_gemini.state = 1
         self.cancel_mode_info.title = "  Press Esc → Cancel (ChatGPT only)"
-        self._ensure_service_tab()
+        self._save_state()
+        self._ensure_dedicated_window()
 
     def _update_animation(self, _):
         """Update menu bar icon based on current state"""
@@ -237,6 +272,7 @@ class MicPipeApp(rumps.App):
     def toggle_sound(self, _):
         self.sound_enabled = not self.sound_enabled
         self.sound_toggle_item.title = "Sound: On" if self.sound_enabled else "Sound: Off"
+        self._save_state()
 
     def event_callback(self, proxy, event_type, event, refcon):
         """System event callback: Monitor trigger key"""
@@ -270,9 +306,6 @@ class MicPipeApp(rumps.App):
                     # User released trigger key
                     if self.is_recording:
                         threading.Thread(target=self.stop_recording).start()
-                    elif self.waiting_for_page:
-                        # Cancel auto-start if waiting for page load
-                        self.should_auto_start = False
 
         return event
 
@@ -328,6 +361,19 @@ class MicPipeApp(rumps.App):
             return bool(flags & mask)
         return False
 
+    def _enter_waiting_state(self, is_hold_mode):
+        """Enter waiting state while the service page loads."""
+        self.current_state = "WAITING"
+        self.status_item.title = "Status: ⏳ Loading page..."
+        self.waiting_for_page = True
+        # Always auto-start once the page is ready (both Hold and Toggle)
+        self.should_auto_start = True
+        threading.Thread(target=self._wait_and_start_recording).start()
+        # Restore focus while the page loads so dictation result can paste back.
+        if self.target_app:
+            time.sleep(0.1)
+            self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+
     def start_recording(self, is_hold_mode=False):
         """Start recording (for both Hold and Toggle modes)"""
         if self.is_recording:
@@ -336,65 +382,40 @@ class MicPipeApp(rumps.App):
         # 1. Record the current focused application
         self.target_app = NSWorkspace.sharedWorkspace().frontmostApplication()
         self.target_is_service_page = False
-        # If the user triggers MicPipe from the service page itself, don't round-trip text
-        # (read+clear+paste) on stop; just leave the transcription there.
-        try:
-            if self.target_app and self.target_app.bundleIdentifier() == "com.google.Chrome":
-                if self.current_service == "ChatGPT":
-                    if self.chrome.is_front_tab_chatgpt() == "YES":
-                        self.target_is_service_page = True
-                else:  # Gemini
-                    if self.chrome.is_front_tab_gemini() == "YES":
-                        self.target_is_service_page = True
-        except Exception:
-            self.target_is_service_page = False
 
-        # Record the current service tab location (window/tab index) if possible
-        try:
-            location = None
-            if self.target_is_service_page:
-                if self.current_service == "ChatGPT":
-                    location = self.chrome.get_front_chatgpt_tab_location()
-                else:
-                    location = self.chrome.get_front_gemini_tab_location()
-            if not location:
-                if self.current_service == "ChatGPT":
-                    location = self.chrome.get_chatgpt_tab_location()
-                else:
-                    location = self.chrome.get_gemini_tab_location()
-            self.service_tab_location = location
-            logger.debug(f"Recorded tab location: {location}")
-        except Exception as e:
-            logger.debug(f"Failed to record tab location: {e}")
-            self.service_tab_location = None
+        # 2. Ensure dedicated window exists
+        location, created = self._ensure_dedicated_window()
+        if not location:
+            self.current_state = "IDLE"
+            self.status_item.title = "Status: Ready"
+            rumps.notification(
+                "MicPipe",
+                "Window Error",
+                f"Could not create {self.current_service} dedicated window."
+            )
+            return
+        self.service_tab_location = location
 
-        # 2. Update status and state
+        if created:
+            self._enter_waiting_state(is_hold_mode)
+            return
+
+        # If the page is still loading, wait before starting dictation
+        ready_res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
+        if ready_res.startswith("SUCCESS") and "PAGE_NOT_READY" in ready_res:
+            self._enter_waiting_state(is_hold_mode)
+            return
+
+        # 3. Update status and state
         self.current_state = "RECORDING"
         self.status_item.title = "Status: 🎤 Recording..."
 
-        # 3. Start Chrome dictation
+        # 4. Start Chrome dictation
         res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
-        if res.startswith("SUCCESS") and "OPENING" not in res:
+        if res.startswith("SUCCESS"):
             self._update_service_tab_location_from_result(res)
             self.is_recording = True
             self._play_sound(self._sound_start)
-        elif "OPENING" in res:
-            rumps.notification(
-                "MicPipe",
-                f"{self.current_service} Page Opened",
-                f"Please keep the {self.current_service} tab open. Starting recording in a moment..."
-            )
-            self.current_state = "WAITING"
-            self.status_item.title = "Status: ⏳ Loading page..."
-
-            # Set flags for page loading
-            self.waiting_for_page = True
-            # In Toggle mode, auto-start. In Hold mode, only if user still holding
-            self.should_auto_start = not is_hold_mode or self.trigger_key_currently_pressed
-
-            # Poll for page readiness instead of fixed wait
-            threading.Thread(target=self._wait_and_start_recording).start()
-            return
         else:
             # Failed to start; inform the user so they know why nothing happened.
             self.current_state = "IDLE"
@@ -429,7 +450,11 @@ class MicPipeApp(rumps.App):
 
             # Check if page is ready
             res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
-            if res.startswith("SUCCESS") and "READY" in res:
+            if res.startswith("SUCCESS"):
+                status = res.rsplit(":", 1)[-1]
+            else:
+                status = ""
+            if status == "READY":
                 # Page is ready, check again if we should still start
                 if self.should_auto_start:
                     self._retry_start_recording()
@@ -488,8 +513,7 @@ class MicPipeApp(rumps.App):
             stop_res = f"EXCEPTION:{e}"
 
         if stop_res.startswith("SUCCESS"):
-            # If the tab moved to a new window during recording, the stop call might have found it
-            # via fallback scanning. Capture that concrete location for text retrieval.
+            # Capture the location reported by Chrome for follow-up actions.
             self._update_service_tab_location_from_result(stop_res)
 
         if (not stop_res) or ("NOT_FOUND" in stop_res) or ("BTN_NOT_FOUND" in stop_res):

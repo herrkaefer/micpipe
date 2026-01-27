@@ -33,10 +33,79 @@ def run_applescript(script):
 
 class ChromeController:
     """Base class for controlling various AI chat interfaces in Chrome."""
-    def __init__(self, service_name, url_pattern, title_pattern):
+    def __init__(self, service_name, url_pattern, title_pattern, default_url):
         self.service_name = service_name
         self.url_pattern = url_pattern
         self.title_pattern = title_pattern
+        self.default_url = default_url
+
+    def create_dedicated_window(self, bounds=(50, 50, 500, 400)):
+        """Create a dedicated Chrome window and return (window_id, tab_index) or None."""
+        open_url = self.default_url
+        script = f'''
+        tell application "Google Chrome"
+            set newWin to make new window with properties {{bounds:{{{bounds[0]}, {bounds[1]}, {bounds[2]}, {bounds[3]}}}}}
+            set URL of active tab of newWin to "{open_url}"
+            return "WIN_ID:" & (id of newWin) & ",TAB:1"
+        end tell
+        '''
+        res = run_applescript(script)
+        if not res or res.startswith("__MICPIPE_APPLESCRIPT_ERROR__"):
+            return None
+        if res.startswith("WIN_ID:") and ",TAB:" in res:
+            try:
+                win_part, tab_part = res.split(",TAB:")
+                win_id = int(win_part.replace("WIN_ID:", ""))
+                tab_idx = int(tab_part)
+                return (win_id, tab_idx)
+            except Exception:
+                return None
+        return None
+
+    def is_window_alive(self, window_id, tab_index) -> bool:
+        """Check if a specific window/tab still exists and matches the service."""
+        try:
+            win_id = int(window_id)
+            tab_idx = int(tab_index)
+        except (ValueError, TypeError):
+            return False
+        if win_id <= 0 or tab_idx <= 0:
+            return False
+
+        script = f'''
+        tell application "Google Chrome"
+            if (count of windows) = 0 then return "NO_WINDOW"
+            set targetWin to missing value
+            set targetWinId to {win_id} as integer
+            repeat with win in windows
+                set currentWinId to (id of win) as integer
+                if currentWinId = targetWinId then
+                    set targetWin to win
+                    exit repeat
+                end if
+            end repeat
+            if targetWin is missing value then return "NOT_FOUND"
+            try
+                set t to tab {tab_idx} of targetWin
+            on error
+                return "TAB_NOT_FOUND"
+            end try
+            set tUrl to ""
+            set tTitle to ""
+            try
+                set tUrl to (URL of t) as text
+            end try
+            try
+                set tTitle to (title of t) as text
+            end try
+            if (tUrl contains "{self.url_pattern}") or (tTitle contains "{self.title_pattern}") then
+                return "OK"
+            end if
+            return "MISMATCH"
+        end tell
+        '''
+        res = run_applescript(script)
+        return res == "OK"
 
     def get_tab_location(self):
         """Return (window_id, tab_index) for the first matching tab, or None."""
@@ -118,71 +187,44 @@ class ChromeController:
 
         script = f'''
         tell application "Google Chrome"
-            if not (exists window 1) then
-                if "{open_url}" is not "None" then
-                    make new window with properties {{URL:"{open_url}"}}
-                    return "OPENING_NEW_WINDOW"
-                end if
-                return "NO_WINDOW"
-            end if
+            if (count of windows) = 0 then return "NO_WINDOW"
+            if {preferred_win_id} <= 0 or {preferred_tab_index} <= 0 then return "NO_LOCATION"
 
-            -- If preferred window ID is provided, try it first
-            if {preferred_win_id} > 0 and {preferred_tab_index} > 0 then
-                set foundWin to missing value
-                set targetWinId to {preferred_win_id} as integer
+            set foundWin to missing value
+            set targetWinId to {preferred_win_id} as integer
 
-                repeat with win in windows
-                    set currentWinId to (id of win) as integer
-                    if currentWinId = targetWinId then
-                        set foundWin to win
-                        exit repeat
-                    end if
-                end repeat
-
-                if foundWin is not missing value then
-                    try
-                        set pt to tab {preferred_tab_index} of foundWin
-                        -- Verify the preferred tab is still the right service tab.
-                        -- Tab indices are not stable if the user reorders/moves tabs, so we must not
-                        -- "succeed" on an unrelated tab.
-                        set ptUrl to ""
-                        set ptTitle to ""
-                        try
-                            set ptUrl to (URL of pt) as text
-                        end try
-                        try
-                            set ptTitle to (title of pt) as text
-                        end try
-
-                        if (ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}") then
-                            set res to execute pt javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-                            return "SUCCESS:USED_WIN_ID=" & {preferred_win_id} & ",TAB=" & {preferred_tab_index} & ":" & res
-                        end if
-                    on error errMsg
-                        -- Tab access failed, fall through to fallback
-                    end try
-                end if
-            end if
-
-            -- Fallback: search all windows for matching tab
             repeat with win in windows
-                set tIdx to 1
-                repeat with t in tabs of win
-                    try
-                        if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
-                            set res to execute t javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
-                            return "SUCCESS:FALLBACK_WIN_ID=" & (id of win) & ",TAB=" & tIdx & ":" & res
-                        end if
-                    end try
-                    set tIdx to tIdx + 1
-                end repeat
+                set currentWinId to (id of win) as integer
+                if currentWinId = targetWinId then
+                    set foundWin to win
+                    exit repeat
+                end if
             end repeat
 
-            if "{open_url}" is not "None" then
-                make new tab at window 1 with properties {{URL:"{open_url}"}}
-                return "OPENING_NEW_TAB"
+            if foundWin is missing value then return "NOT_FOUND"
+
+            try
+                set pt to tab {preferred_tab_index} of foundWin
+            on error
+                return "NOT_FOUND"
+            end try
+
+            -- Verify the preferred tab is still the right service tab.
+            set ptUrl to ""
+            set ptTitle to ""
+            try
+                set ptUrl to (URL of pt) as text
+            end try
+            try
+                set ptTitle to (title of pt) as text
+            end try
+
+            if not ((ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}")) then
+                return "NOT_FOUND"
             end if
-            return "NOT_FOUND"
+
+            set res to execute pt javascript "eval(decodeURIComponent(escape(window.atob('{b64_js}'))))"
+            return "SUCCESS:USED_WIN_ID=" & {preferred_win_id} & ",TAB=" & {preferred_tab_index} & ":" & res
         end tell
         '''
         result = run_applescript(script)
@@ -194,19 +236,12 @@ class ChromeController:
 
 class ChatGPTChrome(ChromeController):
     def __init__(self):
-        super().__init__("ChatGPT", "chatgpt.com", "ChatGPT")
+        super().__init__("ChatGPT", "chatgpt.com", "ChatGPT", "https://chatgpt.com")
 
     def ensure_chatgpt_tab_exists(self):
-        """Check if a ChatGPT tab exists, create one if not. Returns status string."""
-        location = self.get_tab_location()
-        if location:
-            return "EXISTS"
-        # No tab found, create one
-        js = 'return "TAB_CHECK";'
-        res = self._execute_js(js, open_url="https://chatgpt.com")
-        if "OPENING" in res:
-            return "CREATED"
-        return res
+        """Create a dedicated ChatGPT window. Returns status string."""
+        location = self.create_dedicated_window()
+        return "CREATED" if location else "ERROR"
 
     def is_front_tab_chatgpt(self):
         """Check if the front tab in Chrome is a ChatGPT tab. Returns 'YES' or 'NO'."""
@@ -246,7 +281,7 @@ class ChatGPTChrome(ChromeController):
             return "START_BTN_NOT_FOUND";
         })()
         '''
-        return self._execute_js(js, preferred_location, open_url="https://chatgpt.com")
+        return self._execute_js(js, preferred_location)
 
     def stop_dictation(self, preferred_location=None):
         """Stop dictation by clicking Submit dictation button to finish and keep transcribed text."""
@@ -399,8 +434,10 @@ class ChatGPTChrome(ChromeController):
         if not activate_first:
             return self._execute_js(js_code, preferred_location)
 
+        if not preferred_location:
+            return "NO_LOCATION"
         b64_js = base64.b64encode(js_code.encode('utf-8')).decode('utf-8')
-        win_id, tab_idx = preferred_location if preferred_location else (0, 0)
+        win_id, tab_idx = preferred_location
 
         script = f'''
         tell application "Google Chrome"
@@ -428,7 +465,6 @@ class ChatGPTChrome(ChromeController):
             end if
 
             -- Validate the preferred tab is still the right service tab.
-            -- If it is not, clear it so the fallback search can find the correct tab.
             if targetTab is not missing value then
                 set ptUrl to ""
                 set ptTitle to ""
@@ -439,27 +475,8 @@ class ChatGPTChrome(ChromeController):
                     set ptTitle to (title of targetTab) as text
                 end try
                 if not ((ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}")) then
-                    set targetWin to missing value
-                    set targetTab to missing value
-                    set targetTabIndex to 0
+                    return "NOT_FOUND"
                 end if
-            end if
-
-            -- Fallback: search for matching tab
-            if targetTab is missing value then
-                repeat with win in windows
-                    set tIdx to 1
-                    repeat with t in tabs of win
-                        if (URL of t contains "{self.url_pattern}") or (title of t contains "{self.title_pattern}") then
-                            set targetWin to win
-                            set targetTab to t
-                            set targetTabIndex to tIdx
-                            exit repeat
-                        end if
-                        set tIdx to tIdx + 1
-                    end repeat
-                    if targetTab is not missing value then exit repeat
-                end repeat
             end if
 
             if targetTab is missing value then return "NOT_FOUND"
@@ -480,18 +497,12 @@ class ChatGPTChrome(ChromeController):
 
 class GeminiChrome(ChromeController):
     def __init__(self):
-        super().__init__("Gemini", "gemini.google.com", "Gemini")
+        super().__init__("Gemini", "gemini.google.com", "Gemini", "https://gemini.google.com/app")
 
     def ensure_gemini_tab_exists(self):
-        """Check if a Gemini tab exists, create one if not. Returns status string."""
-        location = self.get_tab_location()
-        if location:
-            return "EXISTS"
-        js = 'return "TAB_CHECK";'
-        res = self._execute_js(js, open_url="https://gemini.google.com/app")
-        if "OPENING" in res:
-            return "CREATED"
-        return res
+        """Create a dedicated Gemini window. Returns status string."""
+        location = self.create_dedicated_window()
+        return "CREATED" if location else "ERROR"
 
     def is_front_tab_gemini(self):
         """Check if the front tab in Chrome is a Gemini tab. Returns 'YES' or 'NO'."""
@@ -523,7 +534,7 @@ class GeminiChrome(ChromeController):
             return "START_BTN_NOT_FOUND";
         })()
         '''
-        return self._execute_js(js, preferred_location, open_url="https://gemini.google.com/app")
+        return self._execute_js(js, preferred_location)
 
     def stop_dictation(self, preferred_location=None):
         """Stop dictation - in Gemini, clicking the mic button again stops and submits."""
@@ -597,8 +608,10 @@ class GeminiChrome(ChromeController):
         if not activate_first:
             return self._execute_js(js_code, preferred_location)
 
+        if not preferred_location:
+            return "NO_LOCATION"
         b64_js = base64.b64encode(js_code.encode('utf-8')).decode('utf-8')
-        win_id, tab_idx = preferred_location if preferred_location else (0, 0)
+        win_id, tab_idx = preferred_location
 
         script = f'''
         tell application "Google Chrome"
@@ -626,7 +639,6 @@ class GeminiChrome(ChromeController):
             end if
 
             -- Validate the preferred tab is still the right service tab.
-            -- If it is not, clear it so the fallback search can find the correct tab.
             if targetTab is not missing value then
                 set ptUrl to ""
                 set ptTitle to ""
@@ -637,27 +649,8 @@ class GeminiChrome(ChromeController):
                     set ptTitle to (title of targetTab) as text
                 end try
                 if not ((ptUrl contains "{self.url_pattern}") or (ptTitle contains "{self.title_pattern}")) then
-                    set targetWin to missing value
-                    set targetTab to missing value
-                    set targetTabIndex to 0
+                    return "NOT_FOUND"
                 end if
-            end if
-
-            -- Fallback: search for matching tab
-            if targetTab is missing value then
-                repeat with win in windows
-                    set tIdx to 1
-                    repeat with t in tabs of win
-                        if (URL of t contains "gemini.google.com") or (title of t contains "Gemini") then
-                            set targetWin to win
-                            set targetTab to t
-                            set targetTabIndex to tIdx
-                            exit repeat
-                        end if
-                        set tIdx to tIdx + 1
-                    end repeat
-                    if targetTab is not missing value then exit repeat
-                end repeat
             end if
 
             if targetTab is missing value then return "NOT_FOUND"
