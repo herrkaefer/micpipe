@@ -20,11 +20,11 @@ class MicPipeStateStore:
     DEFAULT_TRIGGER_KEY = 63  # Fn key
 
     DEFAULT_PIPE_SLOTS = [
-        {"title": "Basic Fix", "prompt": "Fix grammar errors, typos, filler words and add proper punctuation in the following text and output only the corrected text:"},
+        {"title": "Basic Correction", "prompt": "Fix the following voice transcription: 1) Fix grammar errors, typos, and filler words; 2) Add proper punctuation; 3) Auto Format: standardize addresses, phone numbers, numbers, and times to their proper formats; 4) Auto Edit: if there are contradictions, keep the true intent based on context. Output only the corrected text:"},
         {"title": "Polish Text", "prompt": "Polish and improve the following text and output only the result:"},
         {"title": "Translate to English", "prompt": "Translate the following text to English and output only the translation:"},
-        {"title": "Vibe Coding", "prompt": "The following is a voice transcription of coding instructions. Please clean it up by: 1) removing filler words, hesitations and repetitions, 2) resolving any contradictions by keeping the latest intent, 3) organizing the ideas into clear, actionable instructions. Output a clean, well-structured prompt that a coding agent can directly use:"},
-        {"title": "Translate to French", "prompt": "Translate the following text to French and output only the translation:"}
+        {"title": "Vibe Coder", "prompt": "The following is a voice transcription of coding instructions. Please clean it up by: 1) removing filler words, hesitations and repetitions, 2) resolving any contradictions by keeping the latest intent, 3) organizing the ideas into clear, actionable instructions. Output a clean, well-structured prompt that a coding agent can directly use:"},
+        {"title": "Email Writer", "prompt": "Transform the following voice transcription into a professional email. Please: 1) Identify the key points and intent; 2) Structure it with appropriate greeting, body, and closing; 3) Use professional yet friendly tone; 4) Fix any grammar issues and remove filler words; 5) Keep it concise and clear. Output only the email content:"}
     ]
 
 
