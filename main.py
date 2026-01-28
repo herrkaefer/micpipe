@@ -154,14 +154,14 @@ class MicPipeApp(rumps.App):
         try:
             screens = NSScreen.screens()
             if not screens:
-                return (-2000, -1900, -2000 + width, -1900 + height)
+                return (-4000, -4000, -4000 + width, -4000 + height)
             min_x = min(s.frame().origin.x for s in screens)
             min_y = min(s.frame().origin.y for s in screens)
-            left = int(min_x - 2000)
-            bottom = int(min_y - 2000)
+            left = int(min_x - 4000)
+            bottom = int(min_y - 4000)
             return (left, bottom, left + width, bottom + height)
         except Exception:
-            return (-2000, -1900, -2000 + width, -1900 + height)
+            return (-4000, -4000, -4000 + width, -4000 + height)
 
     def _get_ready_status(self, res: str) -> str:
         if not res or not res.startswith("SUCCESS"):
@@ -621,19 +621,25 @@ class MicPipeApp(rumps.App):
         # Take a clipboard snapshot while we wait for transcription
         clipboard_snapshot = snapshot_clipboard()
 
-        # Poll for transcribed text (max 5 attempts)
+        # Poll for transcribed text (total ~5s)
         text = ""
         force_activate = True
-        max_attempts = 5
+        max_attempts = 12
 
         for i in range(max_attempts):
             # Progressive retry intervals
             if i == 0:
-                time.sleep(1.0)  # First attempt: wait 1s for transcription to complete
-            elif i < 3:
-                time.sleep(0.5)  # 2nd-3rd attempts: quick retry
+                time.sleep(0.5)  # First attempt
+            elif i == 1:
+                time.sleep(0.1)  # 2nd attempt
+            elif i == 2:
+                time.sleep(0.2)  # 3rd attempt
+            elif i == 3:
+                time.sleep(0.3)  # 4th attempt
+            elif i == 4:
+                time.sleep(0.4)  # 5th attempt
             else:
-                time.sleep(1.0)  # 4th-5th attempts: standard interval
+                time.sleep(0.5)  # 5th+ attempts
 
             res = self.chrome.get_text_and_clear(
                 activate_first=force_activate,
