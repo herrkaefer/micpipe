@@ -5,7 +5,8 @@ import Quartz
 import threading
 import re
 import rumps
-from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps, NSSound
+import argparse
+from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps, NSSound, NSScreen
 from chrome_script import ChatGPTChrome, GeminiChrome
 from clipboard_guard import snapshot_clipboard
 from paste_tool import paste_text
@@ -36,11 +37,12 @@ __version__ = "1.2.0"
 
 TRIGGER_KEY_CODE = 63  # Fn key (supports both Hold and Toggle modes)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+def configure_logging(debug: bool):
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
 logger = logging.getLogger(__name__)
 
 # ============================================================
@@ -48,7 +50,7 @@ logger = logging.getLogger(__name__)
 class MicPipeApp(rumps.App):
     _TAB_LOC_RE = re.compile(r"(?:USED_WIN_ID|FALLBACK_WIN_ID)=(\d+),TAB=(\d+):")
 
-    def __init__(self):
+    def __init__(self, debug: bool = False):
         super(MicPipeApp, self).__init__("MicPipe", quit_button="Quit")
         self.base_path = os.path.dirname(__file__)
         self.icon = os.path.join(self.base_path, "assets/icon_idle_template.png")
@@ -61,6 +63,8 @@ class MicPipeApp(rumps.App):
             "micpipe_state.json",
         )
         self.state_store = MicPipeStateStore(self.state_path, logger)
+        self.debug = debug
+        self.dedicated_bounds = self._compute_dedicated_bounds(debug)
 
         # Service selection (ChatGPT or Gemini)
         self.current_service = "ChatGPT"  # Default service
@@ -138,6 +142,25 @@ class MicPipeApp(rumps.App):
     def _save_state(self):
         self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows)
 
+    def _compute_dedicated_bounds(self, debug: bool):
+        if debug:
+            return (60, 60, 1100, 800)
+
+        # Place the window just outside the bottom-left of the virtual screen bounds.
+        try:
+            screens = NSScreen.screens()
+            if not screens:
+                return (-2000, -1900, -1900, -1800)
+            min_x = min(s.frame().origin.x for s in screens)
+            min_y = min(s.frame().origin.y for s in screens)
+            left = int(min_x - 2000)
+            bottom = int(min_y - 2000)
+            right = left + 100
+            top = bottom + 100
+            return (left, top, right, bottom)
+        except Exception:
+            return (-2000, -1900, -1900, -1800)
+
     def _get_ready_status(self, res: str) -> str:
         if not res or not res.startswith("SUCCESS"):
             return ""
@@ -187,10 +210,14 @@ class MicPipeApp(rumps.App):
             if location and chrome.is_window_alive(*location):
                 self.dedicated_window = location
                 self.service_tab_location = location
+                try:
+                    chrome.set_window_bounds(location[0], self.dedicated_bounds)
+                except Exception:
+                    pass
                 self._save_state()
                 return location, False
 
-            new_location = chrome.create_dedicated_window()
+            new_location = chrome.create_dedicated_window(bounds=self.dedicated_bounds)
             if new_location:
                 self.dedicated_windows[service_name] = new_location
                 self.dedicated_window = new_location
@@ -659,5 +686,10 @@ class MicPipeApp(rumps.App):
         self.run()
 
 if __name__ == "__main__":
-    app = MicPipeApp()
+    parser = argparse.ArgumentParser(description="MicPipe")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging and visible window")
+    args = parser.parse_args()
+
+    configure_logging(args.debug)
+    app = MicPipeApp(debug=args.debug)
     app.run_app()
