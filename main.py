@@ -125,20 +125,23 @@ class MicPipeApp(rumps.App):
         self.pipe_items[-1] = off_item
         self.pipe_menu.add(off_item)
         
-        # Slot options
-        for i in range(5):
-            slot_label = self._get_slot_label(i)
-            item = rumps.MenuItem(slot_label, callback=self._make_pipe_callback(i))
-            item.state = 1 if self.current_pipe_slot == i else 0
-            self.pipe_items[i] = item
-            self.pipe_menu.add(item)
-        
         self.pipe_menu.add(None)  # Separator
         
-        # Edit options
+        # Slot options - click to select, long text shows title, option-click to edit
         for i in range(5):
-            edit_item = rumps.MenuItem(f"Edit Slot {i+1}...", callback=self._make_edit_slot_callback(i))
-            self.pipe_menu.add(edit_item)
+            slot_label = self._get_slot_label(i)
+            # Click selects the slot; we'll add edit via a submenu per slot
+            slot_submenu = rumps.MenuItem(slot_label)
+            slot_submenu.state = 1 if self.current_pipe_slot == i else 0
+            
+            # Add submenu items: Select and Edit
+            select_item = rumps.MenuItem("✓ Use This Prompt", callback=self._make_pipe_callback(i))
+            edit_item = rumps.MenuItem("✎ Edit...", callback=self._make_edit_slot_callback(i))
+            slot_submenu.add(select_item)
+            slot_submenu.add(edit_item)
+            
+            self.pipe_items[i] = slot_submenu
+            self.pipe_menu.add(slot_submenu)
 
         key_name = self._get_key_name(self.trigger_key)
         self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
@@ -196,16 +199,21 @@ class MicPipeApp(rumps.App):
         return callback
 
     def _get_slot_label(self, slot_index):
-        """Get display label for a correction slot"""
-        prompt = self.pipe_slots[slot_index]
-        if not prompt:
+        """Get display label for a pipe slot (uses title)"""
+        slot = self.pipe_slots[slot_index]
+        title = slot.get("title", "") if isinstance(slot, dict) else ""
+        prompt = slot.get("prompt", "") if isinstance(slot, dict) else slot
+        
+        if title:
+            return f"Slot {slot_index + 1}: {title}"
+        elif prompt:
+            preview = prompt[:25] + "..." if len(prompt) > 25 else prompt
+            return f"Slot {slot_index + 1}: {preview}"
+        else:
             return f"Slot {slot_index + 1}: (empty)"
-        # Show first 30 chars of prompt
-        preview = prompt[:30] + "..." if len(prompt) > 30 else prompt
-        return f"Slot {slot_index + 1}: {preview}"
 
     def _make_pipe_callback(self, slot_index):
-        """Create callback for selecting a correction slot"""
+        """Create callback for selecting a pipe slot"""
         def callback(_):
             if self.is_recording:
                 return  # Don't change during recording
@@ -219,57 +227,69 @@ class MicPipeApp(rumps.App):
             if slot_index == -1:
                 rumps.notification("MicPipe", "AI Pipe", "AI Pipe disabled")
             else:
-                rumps.notification("MicPipe", "AI Pipe", f"Using Slot {slot_index + 1}")
+                slot = self.pipe_slots[slot_index]
+                title = slot.get("title", "") if isinstance(slot, dict) else ""
+                msg = title if title else f"Slot {slot_index + 1}"
+                rumps.notification("MicPipe", "AI Pipe", f"Using: {msg}")
         return callback
 
     def _make_edit_slot_callback(self, slot_index):
-        """Create callback for editing a pipe slot"""
+        """Create callback for editing a pipe slot using standalone editor"""
         def callback(_):
-            current_prompt = self.pipe_slots[slot_index]
-            
-            # Use AppleScript for better dialog behavior
             import subprocess
+            import json
+            import os
+            import threading
+            import sys
+
             
-            # Escape quotes for AppleScript
-            escaped_prompt = current_prompt.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+            slot = self.pipe_slots[slot_index]
+            current_title = slot.get("title", "") if isinstance(slot, dict) else ""
+            current_prompt = slot.get("prompt", "") if isinstance(slot, dict) else slot
             
-            script = f'''
-            tell application "System Events"
-                activate
-                set dialogResult to display dialog "Enter the prompt for AI Pipe:" default answer "{escaped_prompt}" with title "Edit Slot {slot_index + 1}" buttons {{"Cancel", "OK"}} default button "OK"
-                if button returned of dialogResult is "OK" then
-                    return text returned of dialogResult
-                else
-                    return "<<CANCELLED>>"
-                end if
-            end tell
-            '''
+            def run_editor():
+                try:
+                    # Get path to editor script
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    editor_path = os.path.join(script_dir, "slot_editor.py")
+                    
+                    # Run editor as separate process using Popen
+                    proc = subprocess.Popen(
+                        [sys.executable, editor_path, str(slot_index), current_title, current_prompt],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    
+                    # Wait for editor to close
+                    stdout, stderr = proc.communicate(timeout=300)
+                    
+                    if proc.returncode == 0 and stdout.strip():
+                        data = json.loads(stdout.strip())
+                        if data.get("saved"):
+                            self.pipe_slots[slot_index] = {
+                                "title": data["title"],
+                                "prompt": data["prompt"]
+                            }
+                            self._save_state()
+                            
+                            # Update menu
+                            new_label = self._get_slot_label(slot_index)
+                            self.pipe_items[slot_index].title = new_label
+                            
+                            rumps.notification("MicPipe", "Slot Updated", f"Slot {slot_index + 1} has been updated")
+                    else:
+                        if stderr:
+                            logger.debug(f"Editor stderr: {stderr}")
+                except Exception as e:
+                    logger.error(f"Editor failed: {e}")
             
-            try:
-                result = subprocess.run(
-                    ['osascript', '-e', script],
-                    capture_output=True,
-                    text=True,
-                    timeout=120
-                )
-                
-                if result.returncode == 0:
-                    new_prompt = result.stdout.strip()
-                    if new_prompt != "<<CANCELLED>>":
-                        self.pipe_slots[slot_index] = new_prompt
-                        self._save_state()
-                        
-                        # Update menu label
-                        new_label = self._get_slot_label(slot_index)
-                        self.pipe_items[slot_index].title = new_label
-                        
-                        rumps.notification("MicPipe", "Slot Updated", f"Slot {slot_index + 1} has been updated")
-            except subprocess.TimeoutExpired:
-                pass
-            except Exception as e:
-                logger.error(f"Failed to show edit dialog: {e}")
+            # Run in thread to not block
+            thread = threading.Thread(target=run_editor, daemon=True)
+            thread.start()
         
         return callback
+
 
     def _compute_dedicated_bounds(self, debug: bool):
         # Fixed window size that ensures the microphone button is visible
@@ -762,7 +782,7 @@ class MicPipeApp(rumps.App):
         text = ""
         if (self.current_service == "ChatGPT" and 
             self.current_pipe_slot >= 0 and 
-            self.pipe_slots[self.current_pipe_slot]):
+            (self.pipe_slots[self.current_pipe_slot].get("prompt") if isinstance(self.pipe_slots[self.current_pipe_slot], dict) else self.pipe_slots[self.current_pipe_slot])):
             # --- AI Pipe Mode ---
             text = self._wait_and_copy_response()
             if text and self.target_app:
@@ -875,7 +895,8 @@ class MicPipeApp(rumps.App):
             return ""
         
         # Step 2: Combine prompt with transcription
-        prompt = self.pipe_slots[self.current_pipe_slot]
+        slot = self.pipe_slots[self.current_pipe_slot]
+        prompt = slot.get("prompt", "") if isinstance(slot, dict) else slot
         combined_text = prompt + "\n" + transcription
         logger.debug(f"Combined text: {combined_text[:100]}...")
         

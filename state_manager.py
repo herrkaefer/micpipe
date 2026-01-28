@@ -20,11 +20,11 @@ class MicPipeStateStore:
     DEFAULT_TRIGGER_KEY = 63  # Fn key
 
     DEFAULT_PIPE_SLOTS = [
-        "Fix grammar errors in the following text and output only the corrected text:",
-        "Translate the following text to English and output only the translation:",
-        "Polish and improve the following text and output only the result:",
-        "",
-        ""
+        {"title": "Grammar Fix", "prompt": "Fix grammar errors in the following text and output only the corrected text:"},
+        {"title": "Translate to English", "prompt": "Translate the following text to English and output only the translation:"},
+        {"title": "Polish Text", "prompt": "Polish and improve the following text and output only the result:"},
+        {"title": "", "prompt": ""},
+        {"title": "", "prompt": ""}
     ]
 
     def __init__(self, path, logger=None):
@@ -39,12 +39,13 @@ class MicPipeStateStore:
                 pass
 
     def load(self):
+        import copy
         state = {
             "current_service": "ChatGPT",
             "sound_enabled": True,
             "dedicated_windows": {"ChatGPT": None, "Gemini": None},
             "trigger_key": self.DEFAULT_TRIGGER_KEY,
-            "pipe_slots": self.DEFAULT_PIPE_SLOTS.copy(),
+            "pipe_slots": copy.deepcopy(self.DEFAULT_PIPE_SLOTS),
             "current_pipe_slot": -1,
         }
         try:
@@ -83,12 +84,23 @@ class MicPipeStateStore:
         if isinstance(trigger_key, int) and trigger_key in valid_keycodes:
             state["trigger_key"] = trigger_key
 
-        # Load correction slots
+        # Load pipe slots (support both old string format and new dict format)
         pipe_slots = data.get("pipe_slots")
         if isinstance(pipe_slots, list) and len(pipe_slots) == 5:
-            state["pipe_slots"] = [str(s) for s in pipe_slots]
+            converted = []
+            for s in pipe_slots:
+                if isinstance(s, dict) and "title" in s and "prompt" in s:
+                    converted.append({"title": s["title"], "prompt": s["prompt"]})
+                elif isinstance(s, str):
+                    # Migrate old format: use first 20 chars as title
+                    title = s[:20] + "..." if len(s) > 20 else s
+                    converted.append({"title": title, "prompt": s})
+                else:
+                    converted.append({"title": "", "prompt": ""})
+            state["pipe_slots"] = converted
         else:
-            state["pipe_slots"] = self.DEFAULT_PIPE_SLOTS.copy()
+            import copy
+            state["pipe_slots"] = copy.deepcopy(self.DEFAULT_PIPE_SLOTS)
 
         # Load current correction slot
         current_slot = data.get("current_pipe_slot")
