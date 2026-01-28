@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.3.0`
+Current version: `v1.4.0`
 
 
 [中文](README.zh-CN.md)
@@ -19,9 +19,10 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 - **Customizable Global Hotkey**: Select your preferred trigger key from the menu (defaults to Fn)
 - **Invisible Dedicated Window**: Transcription service runs in a dedicated hidden Chrome window to reduce flickering and interference with your normal browsing
 - **Press Esc** during recording to cancel dictation (no paste)
-- **State Persistence**: Your settings (chosen service, sound, hotkey) are automatically saved and restored on startup
-- **Supports both ChatGPT and Google Gemini** as transcription backends
-- **Automatically returns focus** to your original app and pastes the text
+- **AI Pipe**: Automatically post-process your voice transcription through AI using preset prompts (e.g., Grammar Fix, Email Writer, Vibe Coder)
+- **Editable Slots**: Customize titles and prompts for up to 5 processing slots directly from the menu
+- **Conversation Mode**: Issue direct voice commands to the AI without preset prompts
+- **State Persistence**: Your settings (chosen service, sound, hotkey, and custom AI prompts) are automatically saved and restored on startup
 - **Clipboard Preservation**: Automatically restores your original clipboard content after pasting
 
 
@@ -115,6 +116,29 @@ You can choose your preferred trigger key directly from the menu:
 3. Select from supported keys: **Fn**, **Command**, **Option**, **Control**, or **Shift**.
 
 The setting is saved automatically and takes effect immediately.
+ 
+## AI Pipe (AI Post-Processing)
+
+AI Pipe allows you to automatically process your voice transcription through AI before pasting it. You can use it to fix grammar, rewrite text into a formal email, or organize coding instructions.
+ 
++> ⚠️ **Note**: Currently, AI Pipe features (including Conversation Mode and Preset Prompts) are only supported for **ChatGPT**. Gemini currently only supports standard voice-to-text.
+
+### How to Use
+
+1. Click the **MicPipe** icon → **AI Pipe**
+2. Select your preferred mode:
+   - **Off**: Standard voice-to-text with no AI processing.
+   - **Conversation Mode**: Sends your voice directly to the AI as a request or command.
+   - **Slot 1-5 (Presets)**: Uses a pre-defined prompt to process your text.
+
+### Customizing Your Presets
+
+You can customize the 5 preset prompts to fit your needs:
+
+1. In the **AI Pipe** menu, hover over the slot you want to change.
+2. Select **✎ Edit...**.
+3. A standalone editor will open where you can change the **Title** and the **Prompt**.
+4. Save your changes, and they will be applied automatically to your next recording.
 
 ## Service Selection (ChatGPT / Gemini)
 

@@ -32,7 +32,7 @@ from state_manager import MicPipeStateStore
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 def configure_logging(debug: bool):
     logging.basicConfig(
