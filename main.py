@@ -32,10 +32,7 @@ from state_manager import MicPipeStateStore
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.2.0"
-
-
-TRIGGER_KEY_CODE = 63  # Fn key (supports both Hold and Toggle modes)
+__version__ = "1.3.0"
 
 def configure_logging(debug: bool):
     logging.basicConfig(
@@ -66,14 +63,12 @@ class MicPipeApp(rumps.App):
         self.debug = debug
         self.dedicated_bounds = self._compute_dedicated_bounds(debug)
 
-        # Service selection (ChatGPT or Gemini)
-        self.current_service = "ChatGPT"  # Default service
-        self.sound_enabled = True
-        self.dedicated_windows = {"ChatGPT": None, "Gemini": None}
+        # Load saved state
         state = self.state_store.load()
         self.current_service = state["current_service"]
         self.sound_enabled = state["sound_enabled"]
         self.dedicated_windows = state["dedicated_windows"]
+        self.trigger_key = state["trigger_key"]
         self.chatgpt_chrome = ChatGPTChrome()
         self.gemini_chrome = GeminiChrome()
         self.chrome = self.chatgpt_chrome if self.current_service == "ChatGPT" else self.gemini_chrome  # Active controller
@@ -98,7 +93,6 @@ class MicPipeApp(rumps.App):
         threading.Thread(target=self._check_service_ready_on_startup).start()
 
         # Build menu
-        key_name = self._get_key_name(TRIGGER_KEY_CODE)
         self.status_item = rumps.MenuItem("Status: Ready", callback=None)
 
         # Service selection submenu
@@ -110,9 +104,18 @@ class MicPipeApp(rumps.App):
         self.service_menu.add(self.service_chatgpt)
         self.service_menu.add(self.service_gemini)
 
-        self.hotkey_info = rumps.MenuItem(f"Hotkey: {key_name}", callback=None)
-        self.hold_mode_info = rumps.MenuItem(f"  Hold {key_name} → Hold to Speak", callback=None)
-        self.toggle_mode_info = rumps.MenuItem(f"  Click {key_name} → Toggle Start/Stop", callback=None)
+        # Hotkey selection submenu
+        self.hotkey_menu = rumps.MenuItem("Hotkey")
+        self.hotkey_items = {}
+        for keycode, display_name in MicPipeStateStore.HOTKEY_OPTIONS:
+            item = rumps.MenuItem(display_name, callback=self._make_hotkey_callback(keycode))
+            item.state = 1 if keycode == self.trigger_key else 0
+            self.hotkey_items[keycode] = item
+            self.hotkey_menu.add(item)
+
+        key_name = self._get_key_name(self.trigger_key)
+        self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
+        self.toggle_mode_info = rumps.MenuItem(f"  Click → Toggle Start/Stop", callback=None)
         self.cancel_mode_info = rumps.MenuItem("  Press Esc → Cancel Dictation", callback=None)
         self.sound_toggle_item = rumps.MenuItem(
             "Sound: On" if self.sound_enabled else "Sound: Off",
@@ -124,8 +127,8 @@ class MicPipeApp(rumps.App):
             self.status_item,
             None,  # Separator
             self.service_menu,
+            self.hotkey_menu,
             None,  # Separator
-            self.hotkey_info,
             self.hold_mode_info,
             self.toggle_mode_info,
             self.cancel_mode_info,
@@ -140,7 +143,22 @@ class MicPipeApp(rumps.App):
         self.timer.start()
 
     def _save_state(self):
-        self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows)
+        self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows, self.trigger_key)
+
+    def _make_hotkey_callback(self, keycode):
+        """Create a callback function for hotkey menu item selection."""
+        def callback(_):
+            if self.is_recording:
+                return  # Don't change hotkey during recording
+            # Update checkmarks
+            for kc, item in self.hotkey_items.items():
+                item.state = 1 if kc == keycode else 0
+            self.trigger_key = keycode
+            self._save_state()
+            # Show notification about the change
+            key_name = self._get_key_name(keycode)
+            rumps.notification("MicPipe", "Hotkey Changed", f"New hotkey: {key_name}")
+        return callback
 
     def _compute_dedicated_bounds(self, debug: bool):
         # Fixed window size that ensures the microphone button is visible
@@ -344,7 +362,7 @@ class MicPipeApp(rumps.App):
             flags = Quartz.CGEventGetFlags(event)
 
             # Handle trigger key - Dual Mode (Hold or Toggle)
-            if keycode == TRIGGER_KEY_CODE:
+            if keycode == self.trigger_key:
                 key_pressed = self._is_key_pressed(keycode, flags)
 
                 # Prevent duplicate events
