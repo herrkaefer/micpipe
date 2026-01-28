@@ -144,7 +144,7 @@ class MicPipeApp(rumps.App):
 
     def _compute_dedicated_bounds(self, debug: bool):
         if debug:
-            return (60, 60, 1100, 800)
+            return (0, 0, 500, 320)
 
         # Place the window just outside the bottom-left of the virtual screen bounds.
         try:
