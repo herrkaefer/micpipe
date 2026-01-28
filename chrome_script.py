@@ -2,6 +2,7 @@ import subprocess
 import base64
 import os
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -555,6 +556,138 @@ class ChatGPTChrome(ChromeController):
         end tell
         '''
         return run_applescript(script)
+
+    def pre_fill_prompt(self, prompt, preferred_location=None):
+        """Pre-fill prompt text in the input box using execCommand for better reactivity"""
+        js_code = f'''
+        (function() {{
+            var box = document.querySelector('#prompt-textarea');
+            if (!box) {{
+                box = document.querySelector('[data-testid="prompt-textarea"]');
+            }}
+            if (!box) return "NOT_FOUND";
+            
+            try {{
+                box.focus();
+                // Select all and delete (clear)
+                document.execCommand('selectAll', false, null);
+                document.execCommand('delete', false, null);
+                
+                // Insert text via execCommand (this triggers React state updates more reliably)
+                var success = document.execCommand('insertText', false, {json.dumps(prompt)});
+                
+                if (!success) {{
+                    // Fallback to setting property
+                    if (box.tagName === 'TEXTAREA' || typeof box.value === 'string') {{
+                        box.value = {json.dumps(prompt)};
+                    }} else {{
+                        box.innerText = {json.dumps(prompt)};
+                    }}
+                    box.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    box.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+                
+                return "SUCCESS";
+            }} catch(e) {{
+                return "ERROR:" + e.message;
+            }}
+        }})()
+        '''
+        return self._execute_js(js_code, preferred_location)
+
+
+    def submit_message(self, preferred_location=None):
+        """Click the send button to submit the message"""
+        js = '''
+        (function() {
+            var sendBtn = document.querySelector('button[data-testid="send-button"]') ||
+                          document.querySelector('button[aria-label="Send prompt"]') ||
+                          document.querySelector('button[data-testid="composer-submit-button"]') ||
+                          document.querySelector('#composer-submit-button');
+            
+            // If still not found, search by SVG path (extreme fallback)
+            if (!sendBtn) {
+                var svgs = document.querySelectorAll('svg');
+                for (var i = 0; i < svgs.length; i++) {
+                    if (svgs[i].innerHTML.indexOf('M15.192') !== -1) { // ChatGPT send icon signature
+                        sendBtn = svgs[i].closest('button');
+                        if (sendBtn) break;
+                    }
+                }
+            }
+
+            if (sendBtn) {
+                if (sendBtn.disabled) return "SEND_BTN_DISABLED";
+                sendBtn.click();
+                return "SENT";
+            }
+            return "SEND_BTN_NOT_FOUND";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+
+    def is_response_complete(self, preferred_location=None):
+        """Check if AI response is complete (Simpler, more robust version)"""
+        js = '''
+        (function() {
+            // 1. If stop button exists, we are definitely NOT done
+            var stopBtn = document.querySelector('button[data-testid="stop-button"]') ||
+                          document.querySelector('button[aria-label="Stop streaming"]') ||
+                          document.querySelector('button[aria-label="Stop generating"]');
+            if (stopBtn) return "GENERATING";
+            
+            // 2. Assistant messages check
+            var assistants = document.querySelectorAll('[data-message-author-role="assistant"]');
+            if (assistants.length === 0) return "NO_RESPONSE";
+            
+            // 3. check for streaming class as secondary indicator
+            var isStreaming = !!document.querySelector('.streaming') || !!document.querySelector('.result-streaming');
+            if (isStreaming) return "GENERATING";
+            
+            // 4. If stop button is gone and we have messages, we consider it potential completion
+            return "COMPLETE";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+
+
+    def click_copy_button(self, preferred_location=None):
+        """Extract text content from the last AI response directly (no clipboard API needed)"""
+        js = """
+        (function() {
+            var assistants = document.querySelectorAll('[data-message-author-role="assistant"]');
+            if (assistants.length === 0) return "NO_RESPONSE";
+            
+            var lastAssistant = assistants[assistants.length - 1];
+            
+            // Find the markdown content container
+            var mdContainer = lastAssistant.querySelector('.markdown') ||
+                              lastAssistant.querySelector('[class*="markdown"]') ||
+                              lastAssistant.querySelector('.prose') ||
+                              lastAssistant;
+            
+            // Get text content, preserving some structure
+            var text = "";
+            
+            // Try to get inner text which preserves line breaks better
+            if (mdContainer) {
+                text = mdContainer.innerText || mdContainer.textContent || "";
+            }
+            
+            // Clean up the text
+            text = text.trim();
+            
+            if (text) {
+                return "TEXT:" + text;
+            }
+            return "EMPTY_RESPONSE";
+        })()
+        """
+        return self._execute_js(js, preferred_location)
+
+
 
 class GeminiChrome(ChromeController):
     def __init__(self):

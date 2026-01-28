@@ -19,6 +19,14 @@ class MicPipeStateStore:
 
     DEFAULT_TRIGGER_KEY = 63  # Fn key
 
+    DEFAULT_PIPE_SLOTS = [
+        "Fix grammar errors in the following text and output only the corrected text:",
+        "Translate the following text to English and output only the translation:",
+        "Polish and improve the following text and output only the result:",
+        "",
+        ""
+    ]
+
     def __init__(self, path, logger=None):
         self.path = path
         self.logger = logger
@@ -36,6 +44,8 @@ class MicPipeStateStore:
             "sound_enabled": True,
             "dedicated_windows": {"ChatGPT": None, "Gemini": None},
             "trigger_key": self.DEFAULT_TRIGGER_KEY,
+            "pipe_slots": self.DEFAULT_PIPE_SLOTS.copy(),
+            "current_pipe_slot": -1,
         }
         try:
             if not os.path.exists(self.path):
@@ -73,9 +83,23 @@ class MicPipeStateStore:
         if isinstance(trigger_key, int) and trigger_key in valid_keycodes:
             state["trigger_key"] = trigger_key
 
+        # Load correction slots
+        pipe_slots = data.get("pipe_slots")
+        if isinstance(pipe_slots, list) and len(pipe_slots) == 5:
+            state["pipe_slots"] = [str(s) for s in pipe_slots]
+        else:
+            state["pipe_slots"] = self.DEFAULT_PIPE_SLOTS.copy()
+
+        # Load current correction slot
+        current_slot = data.get("current_pipe_slot")
+        if isinstance(current_slot, int) and -1 <= current_slot <= 4:
+            state["current_pipe_slot"] = current_slot
+        else:
+            state["current_pipe_slot"] = -1
+
         return state
 
-    def save(self, current_service, sound_enabled, dedicated_windows, trigger_key=None):
+    def save(self, current_service, sound_enabled, dedicated_windows, trigger_key=None, pipe_slots=None, current_pipe_slot=None):
         payload = {
             "current_service": current_service,
             "sound_enabled": sound_enabled,
@@ -88,6 +112,8 @@ class MicPipeStateStore:
                 else None,
             },
             "trigger_key": trigger_key if trigger_key is not None else self.DEFAULT_TRIGGER_KEY,
+            "pipe_slots": pipe_slots if pipe_slots is not None else self.DEFAULT_PIPE_SLOTS.copy(),
+            "current_pipe_slot": current_pipe_slot if current_pipe_slot is not None else -1,
         }
         try:
             parent = os.path.dirname(self.path)

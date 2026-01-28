@@ -69,6 +69,8 @@ class MicPipeApp(rumps.App):
         self.sound_enabled = state["sound_enabled"]
         self.dedicated_windows = state["dedicated_windows"]
         self.trigger_key = state["trigger_key"]
+        self.pipe_slots = state["pipe_slots"]
+        self.current_pipe_slot = state["current_pipe_slot"]
         self.chatgpt_chrome = ChatGPTChrome()
         self.gemini_chrome = GeminiChrome()
         self.chrome = self.chatgpt_chrome if self.current_service == "ChatGPT" else self.gemini_chrome  # Active controller
@@ -113,6 +115,31 @@ class MicPipeApp(rumps.App):
             self.hotkey_items[keycode] = item
             self.hotkey_menu.add(item)
 
+        # AI Pipe submenu
+        self.pipe_menu = rumps.MenuItem("AI Pipe")
+        self.pipe_items = {}
+        
+        # Off option
+        off_item = rumps.MenuItem("Off", callback=self._make_pipe_callback(-1))
+        off_item.state = 1 if self.current_pipe_slot == -1 else 0
+        self.pipe_items[-1] = off_item
+        self.pipe_menu.add(off_item)
+        
+        # Slot options
+        for i in range(5):
+            slot_label = self._get_slot_label(i)
+            item = rumps.MenuItem(slot_label, callback=self._make_pipe_callback(i))
+            item.state = 1 if self.current_pipe_slot == i else 0
+            self.pipe_items[i] = item
+            self.pipe_menu.add(item)
+        
+        self.pipe_menu.add(None)  # Separator
+        
+        # Edit options
+        for i in range(5):
+            edit_item = rumps.MenuItem(f"Edit Slot {i+1}...", callback=self._make_edit_slot_callback(i))
+            self.pipe_menu.add(edit_item)
+
         key_name = self._get_key_name(self.trigger_key)
         self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
         self.toggle_mode_info = rumps.MenuItem(f"  Click → Toggle Start/Stop", callback=None)
@@ -128,6 +155,7 @@ class MicPipeApp(rumps.App):
             None,  # Separator
             self.service_menu,
             self.hotkey_menu,
+            self.pipe_menu,
             None,  # Separator
             self.hold_mode_info,
             self.toggle_mode_info,
@@ -143,7 +171,14 @@ class MicPipeApp(rumps.App):
         self.timer.start()
 
     def _save_state(self):
-        self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows, self.trigger_key)
+        self.state_store.save(
+            self.current_service, 
+            self.sound_enabled, 
+            self.dedicated_windows, 
+            self.trigger_key,
+            self.pipe_slots,
+            self.current_pipe_slot
+        )
 
     def _make_hotkey_callback(self, keycode):
         """Create a callback function for hotkey menu item selection."""
@@ -160,10 +195,86 @@ class MicPipeApp(rumps.App):
             rumps.notification("MicPipe", "Hotkey Changed", f"New hotkey: {key_name}")
         return callback
 
+    def _get_slot_label(self, slot_index):
+        """Get display label for a correction slot"""
+        prompt = self.pipe_slots[slot_index]
+        if not prompt:
+            return f"Slot {slot_index + 1}: (empty)"
+        # Show first 30 chars of prompt
+        preview = prompt[:30] + "..." if len(prompt) > 30 else prompt
+        return f"Slot {slot_index + 1}: {preview}"
+
+    def _make_pipe_callback(self, slot_index):
+        """Create callback for selecting a correction slot"""
+        def callback(_):
+            if self.is_recording:
+                return  # Don't change during recording
+            # Update checkmarks
+            for idx, item in self.pipe_items.items():
+                item.state = 1 if idx == slot_index else 0
+            self.current_pipe_slot = slot_index
+            self._save_state()
+            
+            # Show notification
+            if slot_index == -1:
+                rumps.notification("MicPipe", "AI Pipe", "AI Pipe disabled")
+            else:
+                rumps.notification("MicPipe", "AI Pipe", f"Using Slot {slot_index + 1}")
+        return callback
+
+    def _make_edit_slot_callback(self, slot_index):
+        """Create callback for editing a pipe slot"""
+        def callback(_):
+            current_prompt = self.pipe_slots[slot_index]
+            
+            # Use AppleScript for better dialog behavior
+            import subprocess
+            
+            # Escape quotes for AppleScript
+            escaped_prompt = current_prompt.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+            
+            script = f'''
+            tell application "System Events"
+                activate
+                set dialogResult to display dialog "Enter the prompt for AI Pipe:" default answer "{escaped_prompt}" with title "Edit Slot {slot_index + 1}" buttons {{"Cancel", "OK"}} default button "OK"
+                if button returned of dialogResult is "OK" then
+                    return text returned of dialogResult
+                else
+                    return "<<CANCELLED>>"
+                end if
+            end tell
+            '''
+            
+            try:
+                result = subprocess.run(
+                    ['osascript', '-e', script],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode == 0:
+                    new_prompt = result.stdout.strip()
+                    if new_prompt != "<<CANCELLED>>":
+                        self.pipe_slots[slot_index] = new_prompt
+                        self._save_state()
+                        
+                        # Update menu label
+                        new_label = self._get_slot_label(slot_index)
+                        self.pipe_items[slot_index].title = new_label
+                        
+                        rumps.notification("MicPipe", "Slot Updated", f"Slot {slot_index + 1} has been updated")
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception as e:
+                logger.error(f"Failed to show edit dialog: {e}")
+        
+        return callback
+
     def _compute_dedicated_bounds(self, debug: bool):
         # Fixed window size that ensures the microphone button is visible
-        width = 612
-        height = 487
+        width = 700
+        height = 500
 
         if debug:
             # Debug mode: visible window at top-left
@@ -510,6 +621,9 @@ class MicPipeApp(rumps.App):
         self.current_state = "RECORDING"
         self.status_item.title = "Status: 🎤 Recording..."
 
+        # Note: We don't pre-fill prompt here because it prevents the send button from appearing.
+        # Instead, we'll combine prompt + transcription in stop_recording.
+
         # 4. Start Chrome dictation
         res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
         if res.startswith("SUCCESS"):
@@ -643,6 +757,24 @@ class MicPipeApp(rumps.App):
             self.status_item.title = "Status: Ready"
             return
 
+
+        # Branch based on AI Pipe mode
+        text = ""
+        if (self.current_service == "ChatGPT" and 
+            self.current_pipe_slot >= 0 and 
+            self.pipe_slots[self.current_pipe_slot]):
+            # --- AI Pipe Mode ---
+            text = self._wait_and_copy_response()
+            if text and self.target_app:
+                self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+                time.sleep(0.2)
+                paste_text(text, snapshot=None)  # No clipboard restoration in AI mode
+            
+            self.current_state = "IDLE"
+            self.status_item.title = "Status: Ready"
+            return
+
+        # --- Standard Mode (Existing Flow) ---
         # Take a clipboard snapshot while we wait for transcription
         clipboard_snapshot = snapshot_clipboard()
 
@@ -700,6 +832,122 @@ class MicPipeApp(rumps.App):
 
         self.current_state = "IDLE"
         self.status_item.title = "Status: Ready"
+
+    def _wait_and_copy_response(self, timeout=30):
+        """Get transcription, combine with prompt, submit, and wait for AI response"""
+        # Step 1: Get the transcription text from input box
+        transcription = ""
+        force_activate = True
+        max_attempts = 12
+        
+        for i in range(max_attempts):
+            if i == 0:
+                time.sleep(0.5)
+            elif i == 1:
+                time.sleep(0.1)
+            elif i == 2:
+                time.sleep(0.2)
+            else:
+                time.sleep(0.5)
+            
+            res = self.chrome.get_text_and_clear(
+                activate_first=force_activate,
+                preferred_location=self.service_tab_location,
+            )
+            logger.debug(f"Getting transcription attempt {i+1}/{max_attempts}: {res}")
+            force_activate = False
+            
+            if res.startswith("SUCCESS:"):
+                content = res.split("SUCCESS:", 1)[1]
+                if content.startswith("EMPTY|DBG=") or content.startswith("NOT_FOUND|DBG="):
+                    logger.debug(content)
+                    force_activate = True
+                    continue
+                
+                if content and content not in ["EMPTY", "NOT_FOUND", "SUCCESS", "missing value"]:
+                    transcription = content
+                    logger.debug(f"Got transcription: {transcription[:50]}...")
+                    break
+                force_activate = True
+        
+        if not transcription:
+            logger.error("Failed to get transcription")
+            return ""
+        
+        # Step 2: Combine prompt with transcription
+        prompt = self.pipe_slots[self.current_pipe_slot]
+        combined_text = prompt + "\n" + transcription
+        logger.debug(f"Combined text: {combined_text[:100]}...")
+        
+        # Step 3: Fill the combined text back into the input box
+        try:
+            fill_res = self.chrome.pre_fill_prompt(combined_text, preferred_location=self.service_tab_location)
+            logger.debug(f"Fill result: {fill_res}")
+            time.sleep(0.3)  # Wait for UI to update
+        except Exception as e:
+            logger.error(f"Failed to fill combined text: {e}")
+            return ""
+        
+        # Step 4: Submit the message
+        try:
+            submit_res = self.chrome.submit_message(preferred_location=self.service_tab_location)
+            logger.debug(f"Submit result: {submit_res}")
+            if "NOT_FOUND" in submit_res or "DISABLED" in submit_res:
+                logger.error(f"Submit failed: {submit_res}")
+                return ""
+        except Exception as e:
+            logger.error(f"Failed to submit message: {e}")
+            return ""
+
+        # Step 5: Poll for response completion
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                status = self.chrome.is_response_complete(preferred_location=self.service_tab_location)
+                if "COMPLETE" in status:
+                    break
+                elif "ERROR" in status:
+                    logger.error(f"Response error: {status}")
+                    return ""
+            except Exception as e:
+                logger.debug(f"Error checking response status: {e}")
+            time.sleep(0.5)
+        else:
+            logger.error("Timeout waiting for AI response")
+            rumps.notification("MicPipe", "Timeout", "AI response took too long")
+            return ""
+
+        # Step 6: Extract AI response text directly from DOM
+        try:
+            # Short wait for UI to stabilize
+            time.sleep(1.0)
+            extract_res = self.chrome.click_copy_button(preferred_location=self.service_tab_location)
+            logger.debug(f"Text extraction result: {extract_res}")
+            
+            if extract_res.startswith("SUCCESS:"):
+                # Parse the inner result
+                inner = extract_res.split("SUCCESS:", 1)[1]
+                # Format: USED_WIN_ID=xxx,TAB=x:TEXT:actual text
+                # or just: TEXT:actual text
+                if ":TEXT:" in inner:
+                    text = inner.split(":TEXT:", 1)[1]
+                    return text
+                elif inner.startswith("TEXT:"):
+                    text = inner.split("TEXT:", 1)[1]
+                    return text
+                elif inner in ["NO_RESPONSE", "EMPTY_RESPONSE"]:
+                    logger.error(f"No AI response found: {inner}")
+                    return ""
+                else:
+                    # Unexpected format, log it
+                    logger.error(f"Unexpected extraction result format: {inner}")
+                    return ""
+            else:
+                logger.error(f"Extraction failed: {extract_res}")
+                return ""
+        except Exception as e:
+            logger.error(f"Failed to extract AI response: {e}")
+            return ""
 
     def run_app(self):
         # Create Event Tap
