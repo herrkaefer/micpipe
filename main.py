@@ -434,13 +434,13 @@ class MicPipeApp(rumps.App):
                 self.title = None
 
         elif self.current_state == "WAITING" or self.current_state == "PROCESSING":
-            # Spinning/Processing icon (every 3 frames)
-            if self.animation_frame % 3 == 0:
-                self.icon = os.path.join(self.base_path, "assets/icon_processing.png")
+            # Spinning icon animation (every 2 frames = 5Hz)
+            if self.animation_frame % 2 == 0:
+                frame = (self.animation_frame // 2) % 4 + 1
+                self.icon = os.path.join(self.base_path, f"assets/icon_pro_{frame}.png")
                 self.template = True
                 self.title = None
-                # Optional: rotate icon if supported, but here we just keep it static 
-                # or we could have multiple processing frames.
+
 
     def _get_key_name(self, keycode):
         """Get human-readable key name from keycode"""
@@ -855,6 +855,7 @@ class MicPipeApp(rumps.App):
 
     def _wait_and_copy_response(self, timeout=30):
         """Get transcription, combine with prompt, submit, and wait for AI response"""
+        self.status_item.title = "Status: ⏳ Transcribing..."
         # Step 1: Get the transcription text from input box
         transcription = ""
         force_activate = True
@@ -901,6 +902,7 @@ class MicPipeApp(rumps.App):
         logger.debug(f"Combined text: {combined_text[:100]}...")
         
         # Step 3: Fill the combined text back into the input box
+        self.status_item.title = "Status: 🤖 AI Processing..."
         try:
             fill_res = self.chrome.pre_fill_prompt(combined_text, preferred_location=self.service_tab_location)
             logger.debug(f"Fill result: {fill_res}")
@@ -939,6 +941,7 @@ class MicPipeApp(rumps.App):
             return ""
 
         # Step 6: Extract AI response text directly from DOM
+        self.status_item.title = "Status: ✍️ Writing back..."
         try:
             # Short wait for UI to stabilize
             time.sleep(1.0)
