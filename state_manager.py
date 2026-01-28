@@ -20,12 +20,13 @@ class MicPipeStateStore:
     DEFAULT_TRIGGER_KEY = 63  # Fn key
 
     DEFAULT_PIPE_SLOTS = [
-        {"title": "Grammar Fix", "prompt": "Fix grammar errors in the following text and output only the corrected text:"},
-        {"title": "Translate to English", "prompt": "Translate the following text to English and output only the translation:"},
+        {"title": "Basic Fix", "prompt": "Fix grammar errors, typos, filler words and add proper punctuation in the following text and output only the corrected text:"},
         {"title": "Polish Text", "prompt": "Polish and improve the following text and output only the result:"},
-        {"title": "", "prompt": ""},
-        {"title": "", "prompt": ""}
+        {"title": "Translate to English", "prompt": "Translate the following text to English and output only the translation:"},
+        {"title": "Vibe Coding", "prompt": "The following is a voice transcription of coding instructions. Please clean it up by: 1) removing filler words, hesitations and repetitions, 2) resolving any contradictions by keeping the latest intent, 3) organizing the ideas into clear, actionable instructions. Output a clean, well-structured prompt that a coding agent can directly use:"},
+        {"title": "Translate to French", "prompt": "Translate the following text to French and output only the translation:"}
     ]
+
 
     def __init__(self, path, logger=None):
         self.path = path

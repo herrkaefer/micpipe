@@ -120,10 +120,19 @@ class MicPipeApp(rumps.App):
         self.pipe_items = {}
         
         # Off option
-        off_item = rumps.MenuItem("Off", callback=self._make_pipe_callback(-1))
+        off_item = rumps.MenuItem("Off (Direct Voice-to-Text)", callback=self._make_pipe_callback(-1))
+
         off_item.state = 1 if self.current_pipe_slot == -1 else 0
         self.pipe_items[-1] = off_item
         self.pipe_menu.add(off_item)
+        
+        # Conversation Mode option (special slot -2: no preset prompt, direct AI processing)
+        conv_mode_item = rumps.MenuItem("Conversation Mode (AI follows your spoken instructions)", callback=self._make_pipe_callback(-2))
+        conv_mode_item.state = 1 if self.current_pipe_slot == -2 else 0
+        self._conv_mode_item = conv_mode_item
+        self.pipe_items[-2] = conv_mode_item
+        self.pipe_menu.add(conv_mode_item)
+
         
         self.pipe_menu.add(None)  # Separator
         
@@ -142,6 +151,13 @@ class MicPipeApp(rumps.App):
             
             self.pipe_items[i] = slot_submenu
             self.pipe_menu.add(slot_submenu)
+            
+        self.pipe_menu.add(None)  # Separator
+        # Add non-clickable note about latency
+        latency_note = rumps.MenuItem("Note: AI processing adds latency", callback=None)
+        self.pipe_menu.add(latency_note)
+
+
 
         key_name = self._get_key_name(self.trigger_key)
         self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
@@ -779,10 +795,22 @@ class MicPipeApp(rumps.App):
 
 
         # Branch based on AI Pipe mode
+        # AI Pipe activates when:
+        # - slot >= 0 with a non-empty prompt, OR
+        # - slot == -2 (Ask AI mode: no prompt, direct to ChatGPT)
         text = ""
-        if (self.current_service == "ChatGPT" and 
-            self.current_pipe_slot >= 0 and 
-            (self.pipe_slots[self.current_pipe_slot].get("prompt") if isinstance(self.pipe_slots[self.current_pipe_slot], dict) else self.pipe_slots[self.current_pipe_slot])):
+        use_ai_pipe = False
+        if self.current_service == "ChatGPT":
+            if self.current_pipe_slot == -2:
+                # Ask AI mode: no preset prompt
+                use_ai_pipe = True
+            elif self.current_pipe_slot >= 0:
+                slot = self.pipe_slots[self.current_pipe_slot]
+                prompt = slot.get("prompt", "") if isinstance(slot, dict) else slot
+                if prompt:
+                    use_ai_pipe = True
+        
+        if use_ai_pipe:
             # --- AI Pipe Mode ---
             text = self._wait_and_copy_response()
             if text and self.target_app:
@@ -793,6 +821,7 @@ class MicPipeApp(rumps.App):
             self.current_state = "IDLE"
             self.status_item.title = "Status: Ready"
             return
+
 
         # --- Standard Mode (Existing Flow) ---
         # Take a clipboard snapshot while we wait for transcription
@@ -895,11 +924,16 @@ class MicPipeApp(rumps.App):
             logger.error("Failed to get transcription")
             return ""
         
-        # Step 2: Combine prompt with transcription
-        slot = self.pipe_slots[self.current_pipe_slot]
-        prompt = slot.get("prompt", "") if isinstance(slot, dict) else slot
-        combined_text = prompt + "\n" + transcription
+        # Step 2: Combine prompt with transcription (or use transcription directly for Ask AI mode)
+        if self.current_pipe_slot == -2:
+            # Ask AI mode: no preset prompt, send transcription directly
+            combined_text = transcription
+        else:
+            slot = self.pipe_slots[self.current_pipe_slot]
+            prompt = slot.get("prompt", "") if isinstance(slot, dict) else slot
+            combined_text = prompt + "\n" + transcription if prompt else transcription
         logger.debug(f"Combined text: {combined_text[:100]}...")
+
         
         # Step 3: Fill the combined text back into the input box
         self.status_item.title = "Status: 🤖 AI Processing..."
