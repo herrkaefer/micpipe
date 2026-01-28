@@ -143,25 +143,32 @@ class MicPipeApp(rumps.App):
         self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows)
 
     def _compute_dedicated_bounds(self, debug: bool):
+        # Fixed window size that ensures the microphone button is visible
         width = 612
         height = 487
-        if debug:
-            left = 0
-            top = 0
-            return (left, top, left + width, top + height)
 
-        # Place the window just outside the bottom-left of the virtual screen bounds.
+        if debug:
+            # Debug mode: visible window at top-left
+            return (0, 0, width, height)
+
+        # Production mode: Push window to bottom-right corner, minimizing visible area.
+        # macOS enforces that at least a few pixels remain visible. Through testing:
+        # - Pushing right: left = screen_width - 5 leaves only ~5px visible
+        # - Pushing down: top = screen_height - 50 works well
         try:
             screens = NSScreen.screens()
             if not screens:
-                return (-4000, -4000, -4000 + width, -4000 + height)
-            min_x = min(s.frame().origin.x for s in screens)
-            min_y = min(s.frame().origin.y for s in screens)
-            left = int(min_x - 4000)
-            bottom = int(min_y - 4000)
-            return (left, bottom, left + width, bottom + height)
+                return (20000, 2000, 20000 + width, 2000 + height)
+            # Get the main screen dimensions
+            main_screen = screens[0].frame()
+            screen_width = int(main_screen.size.width)
+            screen_height = int(main_screen.size.height)
+            # Position at bottom-right corner, leaving minimal visible area
+            left = screen_width - 5  # Only ~5px visible on right edge
+            top = screen_height - 50  # Near bottom of screen
+            return (left, top, left + width, top + height)
         except Exception:
-            return (-4000, -4000, -4000 + width, -4000 + height)
+            return (20000, 2000, 20000 + width, 2000 + height)
 
     def _get_ready_status(self, res: str) -> str:
         if not res or not res.startswith("SUCCESS"):
