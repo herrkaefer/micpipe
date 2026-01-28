@@ -5,3 +5,5 @@
 # py2app / build artifacts
 build/
 dist/
+.agent/
+plans/
