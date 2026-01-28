@@ -44,6 +44,9 @@ class ChromeController:
         open_url = self.default_url
         script = f'''
         tell application "Google Chrome"
+            if (count of windows) = 0 then
+                make new window
+            end if
             set newWin to make new window with properties {{bounds:{{{bounds[0]}, {bounds[1]}, {bounds[2]}, {bounds[3]}}}}}
             set URL of active tab of newWin to "{open_url}"
             return "WIN_ID:" & (id of newWin) & ",TAB:1"
