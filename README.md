@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.2.0`
+Current version: `v1.3.0`
 
 
 [中文](README.zh-CN.md)
@@ -15,12 +15,13 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 
 
 ### Key features
-- One key, two modes: **hold to speak** or **click to toggle**
-- Press **Esc** during recording to cancel dictation (no paste)
-- Optional start/stop sound cue (menu toggle)
-- Supports both **ChatGPT** and **Google Gemini** as transcription backends
-- Automatically returns focus to your original app and pastes the text
-- If recording starts from the service page (ChatGPT/Gemini), the text stays there (no round‑trip paste)
+- **One key, two modes**: **hold to speak** or **click to toggle**
+- **Customizable Global Hotkey**: Select your preferred trigger key from the menu (defaults to Fn)
+- **Invisible Dedicated Window**: Transcription service runs in a dedicated hidden Chrome window to reduce flickering and interference with your normal browsing
+- **Press Esc** during recording to cancel dictation (no paste)
+- **State Persistence**: Your settings (chosen service, sound, hotkey) are automatically saved and restored on startup
+- **Supports both ChatGPT and Google Gemini** as transcription backends
+- **Automatically returns focus** to your original app and pastes the text
 - **Clipboard Preservation**: Automatically restores your original clipboard content after pasting
 
 
@@ -107,13 +108,13 @@ Click the menu item to toggle sound cues.
 
 ### Custom Hotkey
 
-The hotkey is currently hardcoded to **Fn** (keycode 63). To change it, edit line 31 in `main.py`:
+You can choose your preferred trigger key directly from the menu:
 
-```python
-TRIGGER_KEY_CODE = 63  # Change this value; common keycodes are listed in comments
-```
+1. Click the **MicPipe** icon in the menu bar.
+2. Go to **Hotkey**.
+3. Select from supported keys: **Fn**, **Command**, **Option**, **Control**, or **Shift**.
 
-> Changing the hotkey via the menu is not supported.
+The setting is saved automatically and takes effect immediately.
 
 ## Service Selection (ChatGPT / Gemini)
 
