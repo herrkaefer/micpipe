@@ -143,23 +143,25 @@ class MicPipeApp(rumps.App):
         self.state_store.save(self.current_service, self.sound_enabled, self.dedicated_windows)
 
     def _compute_dedicated_bounds(self, debug: bool):
+        width = 612
+        height = 487
         if debug:
-            return (0, 0, 500, 320)
+            left = 0
+            top = 0
+            return (left, top, left + width, top + height)
 
         # Place the window just outside the bottom-left of the virtual screen bounds.
         try:
             screens = NSScreen.screens()
             if not screens:
-                return (-2000, -1900, -1900, -1800)
+                return (-2000, -1900, -2000 + width, -1900 + height)
             min_x = min(s.frame().origin.x for s in screens)
             min_y = min(s.frame().origin.y for s in screens)
             left = int(min_x - 2000)
             bottom = int(min_y - 2000)
-            right = left + 100
-            top = bottom + 100
-            return (left, top, right, bottom)
+            return (left, bottom, left + width, bottom + height)
         except Exception:
-            return (-2000, -1900, -1900, -1800)
+            return (-2000, -1900, -2000 + width, -1900 + height)
 
     def _get_ready_status(self, res: str) -> str:
         if not res or not res.startswith("SUCCESS"):
@@ -425,6 +427,7 @@ class MicPipeApp(rumps.App):
         max_wait_time = 20
         poll_interval = 0.5
         elapsed = 0
+        btn_missing_hits = 0
 
         while elapsed < max_wait_time:
             time.sleep(poll_interval)
@@ -438,8 +441,12 @@ class MicPipeApp(rumps.App):
             if status == "READY":
                 return
             if status == "BTN_NOT_FOUND":
-                self._prompt_service_login("请在专属窗口登录后再试一次。")
-                return
+                btn_missing_hits += 1
+                if btn_missing_hits >= 6:
+                    self._prompt_service_login("请在专属窗口登录后再试一次。")
+                    return
+            else:
+                btn_missing_hits = 0
 
     def start_recording(self, is_hold_mode=False):
         """Start recording (for both Hold and Toggle modes)"""
@@ -470,13 +477,8 @@ class MicPipeApp(rumps.App):
         # If the page is still loading, wait before starting dictation
         ready_res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
         status = self._get_ready_status(ready_res)
-        if status == "PAGE_NOT_READY":
+        if status in ("PAGE_NOT_READY", "BTN_NOT_FOUND"):
             self._enter_waiting_state(is_hold_mode)
-            return
-        if status == "BTN_NOT_FOUND":
-            self.current_state = "IDLE"
-            self.status_item.title = "Status: Ready"
-            self._prompt_service_login("请在专属窗口登录后再试一次。")
             return
 
         # 3. Update status and state
@@ -509,6 +511,7 @@ class MicPipeApp(rumps.App):
         max_wait_time = 15  # Maximum 15 seconds
         poll_interval = 0.5  # Check every 0.5 seconds
         elapsed = 0
+        btn_missing_hits = 0
 
         while elapsed < max_wait_time:
             time.sleep(poll_interval)
@@ -534,12 +537,16 @@ class MicPipeApp(rumps.App):
                     self.status_item.title = "Status: Ready"
                 return
             if status == "BTN_NOT_FOUND":
-                self.waiting_for_page = False
-                self.should_auto_start = False
-                self.current_state = "IDLE"
-                self.status_item.title = "Status: Ready"
-                self._prompt_service_login("录音按钮不可用，请登录或检查权限后重试。")
-                return
+                btn_missing_hits += 1
+                if btn_missing_hits >= 6:
+                    self.waiting_for_page = False
+                    self.should_auto_start = False
+                    self.current_state = "IDLE"
+                    self.status_item.title = "Status: Ready"
+                    self._prompt_service_login("录音按钮不可用，请登录或检查权限后重试。")
+                    return
+            else:
+                btn_missing_hits = 0
 
         # Timeout: page didn't load in time
         self.waiting_for_page = False
