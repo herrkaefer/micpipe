@@ -7,6 +7,8 @@ Current version: `v1.4.0`
 
 [中文](README.zh-CN.md)
 
+> ⚠️ **Actively evolving**: Core functionality has been validated, but some edge cases and stability still need improvement. Feedback, code contributions, and a Star are very welcome.
+
 > **Tip**: Before using MicPipe, sign in to ChatGPT in Chrome to ensure the built-in voice dictation works properly.
 
 ## Overview
