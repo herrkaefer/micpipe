@@ -7,6 +7,8 @@ Current version: `v1.4.0`
 
 [English](README.md)
 
+> **提示**：使用前请先在 Chrome 里正常登录 ChatGPT，以确保内置听写功能可用。
+
 ## 简介
 
 MicPipe 是一个 macOS 小应用，让你能够直接在任何应用程序中使用 ChatGPT 网页版的语音输入功能。

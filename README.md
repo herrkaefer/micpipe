@@ -7,6 +7,8 @@ Current version: `v1.4.0`
 
 [中文](README.zh-CN.md)
 
+> **Tip**: Before using MicPipe, sign in to ChatGPT in Chrome to ensure the built-in voice dictation works properly.
+
 ## Overview
 
 MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dictation feature directly within any application.
