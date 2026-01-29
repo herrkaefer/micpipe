@@ -827,10 +827,10 @@ class MicPipeApp(rumps.App):
         # Take a clipboard snapshot while we wait for transcription
         clipboard_snapshot = snapshot_clipboard()
 
-        # Poll for transcribed text (total ~5s)
+        # Poll for transcribed text (total ~8s)
         text = ""
         force_activate = True
-        max_attempts = 12
+        max_attempts = 14
 
         for i in range(max_attempts):
             # Progressive retry intervals
@@ -844,8 +844,10 @@ class MicPipeApp(rumps.App):
                 time.sleep(0.3)  # 4th attempt
             elif i == 4:
                 time.sleep(0.4)  # 5th attempt
+            elif i >= 10:
+                time.sleep(1.0)  # 11th+ attempts
             else:
-                time.sleep(0.5)  # 5th+ attempts
+                time.sleep(0.5)  # 6th-10th attempts
 
             res = self.chrome.get_text_and_clear(
                 activate_first=force_activate,
@@ -888,7 +890,7 @@ class MicPipeApp(rumps.App):
         # Step 1: Get the transcription text from input box
         transcription = ""
         force_activate = True
-        max_attempts = 12
+        max_attempts = 14
         
         for i in range(max_attempts):
             if i == 0:
@@ -897,6 +899,8 @@ class MicPipeApp(rumps.App):
                 time.sleep(0.1)
             elif i == 2:
                 time.sleep(0.2)
+            elif i >= 10:
+                time.sleep(1.0)
             else:
                 time.sleep(0.5)
             
