@@ -388,6 +388,7 @@ class MicPipeApp(rumps.App):
                     chrome.set_window_bounds(location[0], self.dedicated_bounds)
                 except Exception:
                     pass
+                chrome.demote_window(location[0])
                 self._save_state()
                 return location, False
 
@@ -397,6 +398,7 @@ class MicPipeApp(rumps.App):
                 self.dedicated_window = new_location
                 self.service_tab_location = new_location
                 logger.info(f"{service_name} dedicated window created: {new_location}")
+                chrome.demote_window(new_location[0])
                 self._save_state()
                 return new_location, True
 
@@ -550,6 +552,13 @@ class MicPipeApp(rumps.App):
             self.status_item.title = "Status: ⏳ Cancelling..."
             try:
                 self.chrome.cancel_dictation(preferred_location=self.service_tab_location)
+            except Exception:
+                pass
+
+        # Push dedicated window to back before restoring focus
+        if self.service_tab_location:
+            try:
+                self.chrome.demote_window(self.service_tab_location[0])
             except Exception:
                 pass
 

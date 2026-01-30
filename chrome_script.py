@@ -50,6 +50,9 @@ class ChromeController:
             end if
             set newWin to make new window with properties {{bounds:{{{bounds[0]}, {bounds[1]}, {bounds[2]}, {bounds[3]}}}}}
             set URL of active tab of newWin to "{open_url}"
+            if (count of windows) > 1 then
+                set index of newWin to (count of windows)
+            end if
             return "WIN_ID:" & (id of newWin) & ",TAB:1"
         end tell
         '''
@@ -168,6 +171,38 @@ class ChromeController:
         '''
         res = run_applescript(script)
         return res == "OK"
+
+    def demote_window(self, window_id) -> bool:
+        """Push a Chrome window to the back of the window stack so it is no longer the 'last active' window.
+
+        This prevents the dedicated (hidden) window from hijacking external link opens.
+        Only acts when Chrome has 2+ windows; single-window case is a no-op.
+        """
+        try:
+            win_id = int(window_id)
+        except (ValueError, TypeError):
+            return False
+        if win_id <= 0:
+            return False
+        script = f'''
+        tell application "Google Chrome"
+            if (count of windows) < 2 then return "SKIP"
+            set targetWin to missing value
+            set targetWinId to {win_id} as integer
+            repeat with win in windows
+                set currentWinId to (id of win) as integer
+                if currentWinId = targetWinId then
+                    set targetWin to win
+                    exit repeat
+                end if
+            end repeat
+            if targetWin is missing value then return "NOT_FOUND"
+            set index of targetWin to (count of windows)
+            return "OK"
+        end tell
+        '''
+        res = run_applescript(script)
+        return res in ("OK", "SKIP")
 
     def get_tab_location(self):
         """Return (window_id, tab_index) for the first matching tab, or None."""
@@ -552,6 +587,11 @@ class ChatGPTChrome(ChromeController):
                 set index of originalWin to 1
                 set active tab index of originalWin to originalTabIndex
             end try
+            try
+                if (count of windows) > 1 then
+                    set index of targetWin to (count of windows)
+                end if
+            end try
             return "SUCCESS:" & res
         end tell
         '''
@@ -857,6 +897,11 @@ class GeminiChrome(ChromeController):
             try
                 set index of originalWin to 1
                 set active tab index of originalWin to originalTabIndex
+            end try
+            try
+                if (count of windows) > 1 then
+                    set index of targetWin to (count of windows)
+                end if
             end try
             return "SUCCESS:" & res
         end tell
