@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.4.0`
+Current version: `v1.4.1`
 
 
 [English](README.md)
@@ -41,10 +41,7 @@ MicPipe 是一个 macOS 小应用，让你能够直接在任何应用程序中�
 ### 方式 1：脚本启动（推荐）
 双击 **`MicPipe.command`**。该脚本会在启动应用后自动关闭终端窗口，是确保权限正常的最可靠方式。
 
-### 方式 2：App 启动（实验性）
-在项目文件夹中双击 **`MicPipe.app`**。注意：由于 macOS 的隐私和权限限制，此 AppleScript 包装器在某些系统上可能无法正常运行。
-
-### 方式 3：手动启动
+### 方式 2：手动启动
 ```bash
 uv run python main.py
 ```
@@ -70,10 +67,9 @@ uv run python main.py
 ### 3. 启动应用
 
 - **MicPipe.command**：双击启动，在后台运行后会自动关闭终端窗口（推荐方式）。
-- **MicPipe.app**：双击启动，享受无窗口的静默体验。如果启动失败或菜单栏没有图标，请改用 `.command` 方式。
 - **终端启动**：运行 `uv run python main.py`。
 
-> **首次运行提示**：由于这是未签名应用，macOS 可能会拦截。如果双击没反应，请在 `MicPipe.app`（或 `.command`）上**右键点击 -> 打开**，然后在弹窗中再次点击**打开**即可。如果 `.app` 版本在授权后仍无法启动，请使用 `MicPipe.command`。
+> **首次运行提示**：由于这是未签名应用，macOS 可能会拦截。如果双击没反应，请在 `MicPipe.command` 上**右键点击 -> 打开**，然后在弹窗中再次点击**打开**即可。
 
 ## 使用方法
 
