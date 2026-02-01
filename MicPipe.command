@@ -56,7 +56,22 @@ nohup $RUN_CMD > /tmp/micpipe.log 2>&1 &
 echo "🚀 MicPipe is starting in the background..."
 echo "📂 Logs are being written to /tmp/micpipe.log"
 
-# Wait a moment and then close the Terminal window
+# Wait a moment and then close the Terminal window(s)
 sleep 1
-osascript -e 'tell application "Terminal" to close front window' &
+osascript -e '
+tell application "Terminal"
+    -- Close all idle windows opened by this script
+    repeat while (count of windows) > 0
+        if busy of front window is false then
+            close front window
+            delay 0.3
+        else
+            exit repeat
+        end if
+    end repeat
+    delay 0.5
+    -- Quit Terminal if no windows remain
+    if (count of windows) is 0 then quit
+end tell
+' 2>/dev/null &
 exit
