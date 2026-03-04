@@ -103,7 +103,7 @@ MicPipe 使用 **Fn 键**触发录音，支持两种操作方式：
 点击菜单中选项可开关提示音。
 
 <p align="left">
-  <img src="demo/screenshot-menu-ai-pipe.png" width="300" alt="AI Pipe">
+  <img src="demo/screenshot-menu-ai-pipe.png" width="600" alt="AI Pipe">
 </p>
 
 
