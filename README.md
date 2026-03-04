@@ -103,7 +103,7 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 Click the menu item to toggle sound cues.
 
 <p align="left">
-  <img src="demo/screenshot-menu-ai-pipe.png" width="300" alt="AI Pipe">
+  <img src="demo/screenshot-menu-ai-pipe.png" width="600" alt="AI Pipe">
 </p>
 
 
