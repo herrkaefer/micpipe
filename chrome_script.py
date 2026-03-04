@@ -204,6 +204,74 @@ class ChromeController:
         res = run_applescript(script)
         return res in ("OK", "SKIP")
 
+    def reload_tab(self, window_id, tab_index) -> bool:
+        """Reload a specific tab in a specific Chrome window."""
+        try:
+            win_id = int(window_id)
+            tab_idx = int(tab_index)
+        except (ValueError, TypeError):
+            return False
+        if win_id <= 0 or tab_idx <= 0:
+            return False
+
+        script = f'''
+        tell application "Google Chrome"
+            if (count of windows) = 0 then return "NO_WINDOW"
+            set targetWin to missing value
+            set targetWinId to {win_id} as integer
+            repeat with win in windows
+                set currentWinId to (id of win) as integer
+                if currentWinId = targetWinId then
+                    set targetWin to win
+                    exit repeat
+                end if
+            end repeat
+            if targetWin is missing value then return "NOT_FOUND"
+            try
+                set targetTab to tab {tab_idx} of targetWin
+            on error
+                return "TAB_NOT_FOUND"
+            end try
+            reload targetTab
+            return "RELOADED"
+        end tell
+        '''
+        res = run_applescript(script)
+        return res == "RELOADED"
+
+    def close_window(self, window_id) -> bool:
+        """Close a specific Chrome window by ID."""
+        try:
+            win_id = int(window_id)
+        except (ValueError, TypeError):
+            return False
+        if win_id <= 0:
+            return False
+
+        script = f'''
+        tell application "Google Chrome"
+            if (count of windows) = 0 then return "NO_WINDOW"
+            set targetWin to missing value
+            set targetWinId to {win_id} as integer
+            repeat with win in windows
+                set currentWinId to (id of win) as integer
+                if currentWinId = targetWinId then
+                    set targetWin to win
+                    exit repeat
+                end if
+            end repeat
+            if targetWin is missing value then return "NOT_FOUND"
+            close targetWin
+            return "CLOSED"
+        end tell
+        '''
+        res = run_applescript(script)
+        return res == "CLOSED"
+
+    def is_recording_active(self, preferred_location=None) -> bool:
+        """Default implementation for services without recording-state detection."""
+        return False
+
     def get_tab_location(self):
         """Return (window_id, tab_index) for the first matching tab, or None."""
         script = f'''
@@ -376,6 +444,19 @@ class ChatGPTChrome(ChromeController):
             );
             if (btn) { btn.click(); return "START_DONE"; }
             return "START_BTN_NOT_FOUND";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+    def is_recording_active(self, preferred_location=None):
+        js = '''
+        (function() {
+            var buttons = Array.from(document.querySelectorAll('button'));
+            var btn = buttons.find(b =>
+                (b.ariaLabel && b.ariaLabel.includes('Submit dictation')) ||
+                b.querySelector('svg path[d*="M20 6L9 17l-5-5"]')
+            );
+            return btn ? "ACTIVE" : "INACTIVE";
         })()
         '''
         return self._execute_js(js, preferred_location)
@@ -766,6 +847,15 @@ class GeminiChrome(ChromeController):
             var btn = document.querySelector('.speech_dictation_mic_button');
             if (btn) { btn.click(); return "START_DONE"; }
             return "START_BTN_NOT_FOUND";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+    def is_recording_active(self, preferred_location=None):
+        js = '''
+        (function() {
+            var micOn = document.querySelector('.speech_dictation_mic_button mat-icon.mic-on');
+            return micOn ? "ACTIVE" : "INACTIVE";
         })()
         '''
         return self._execute_js(js, preferred_location)

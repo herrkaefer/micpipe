@@ -32,7 +32,7 @@ from state_manager import MicPipeStateStore
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.4.0"
+__version__ = "1.4.2"
 
 def configure_logging(debug: bool):
     logging.basicConfig(
@@ -78,6 +78,7 @@ class MicPipeApp(rumps.App):
         self.is_recording = False
         self.current_state = "IDLE"
         self.animation_frame = 0
+        self.tap = None
 
         # Internal state
         self.target_app = None
@@ -167,6 +168,7 @@ class MicPipeApp(rumps.App):
             "Sound: On" if self.sound_enabled else "Sound: Off",
             callback=self.toggle_sound
         )
+        self.reset_item = rumps.MenuItem("Reset (Self-Check & Repair)", callback=self.reset_app)
         self.version_info = rumps.MenuItem(f"Version: {__version__}", callback=None)
 
         self.menu = [
@@ -181,6 +183,7 @@ class MicPipeApp(rumps.App):
             self.cancel_mode_info,
             None,  # Separator
             self.sound_toggle_item,
+            self.reset_item,
             None,  # Separator
             self.version_info
         ]
@@ -435,6 +438,13 @@ class MicPipeApp(rumps.App):
     def _update_animation(self, _):
         """Update menu bar icon based on current state"""
         self.animation_frame += 1
+        if self.tap and self.animation_frame % 50 == 0:
+            try:
+                if not Quartz.CGEventTapIsEnabled(self.tap):
+                    logger.warning("Event tap disabled by macOS, re-enabling.")
+                    Quartz.CGEventTapEnable(self.tap, True)
+            except Exception as e:
+                logger.debug(f"Failed to validate/re-enable event tap: {e}")
 
         if self.current_state == "IDLE":
             idle_icon = os.path.join(self.base_path, "assets/icon_idle_template.png")
@@ -495,6 +505,101 @@ class MicPipeApp(rumps.App):
         self.sound_enabled = not self.sound_enabled
         self.sound_toggle_item.title = "Sound: On" if self.sound_enabled else "Sound: Off"
         self._save_state()
+
+    def _is_recording_active(self) -> bool:
+        try:
+            res = self.chrome.is_recording_active(preferred_location=self.service_tab_location)
+        except Exception as e:
+            logger.debug(f"Recording-state check raised exception: {e}")
+            return False
+        if isinstance(res, bool):
+            return res
+        if not res:
+            return False
+        status = str(res)
+        if status.startswith("SUCCESS"):
+            status = status.rsplit(":", 1)[-1]
+        return status == "ACTIVE"
+
+    def _start_dictation_with_verification(self):
+        """Start dictation and verify the page actually entered recording state."""
+        max_attempts = 2 if self.current_service == "ChatGPT" else 1
+        last_result = ""
+        for attempt in range(max_attempts):
+            res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
+            last_result = res
+            if not res.startswith("SUCCESS"):
+                return False, res
+            self._update_service_tab_location_from_result(res)
+            time.sleep(0.5)
+            if self._is_recording_active():
+                return True, res
+            logger.warning(
+                f"Recording verification failed after start click "
+                f"(attempt {attempt + 1}/{max_attempts})."
+            )
+        return False, last_result or "VERIFY_FAILED"
+
+    def reset_app(self, _):
+        """Run a lightweight self-check and recovery routine."""
+        previous_app = NSWorkspace.sharedWorkspace().frontmostApplication()
+
+        tap_msg = "Event Tap unavailable"
+        if self.tap:
+            try:
+                Quartz.CGEventTapEnable(self.tap, True)
+                tap_ok = bool(Quartz.CGEventTapIsEnabled(self.tap))
+                tap_msg = "Event Tap OK" if tap_ok else "Event Tap re-enable failed"
+            except Exception as e:
+                tap_msg = f"Event Tap error: {e}"
+
+        service_name = self.current_service
+        old_location = self.service_tab_location or self.dedicated_windows.get(service_name)
+        closed_old = False
+        if old_location:
+            try:
+                closed_old = self.chrome.close_window(old_location[0])
+            except Exception:
+                closed_old = False
+
+        self.dedicated_windows.pop(service_name, None)
+        self.service_tab_location = None
+        self.dedicated_window = None
+
+        new_location, _ = self._ensure_dedicated_window()
+        window_ok = bool(new_location)
+        if new_location:
+            try:
+                # Extra guard: keep dedicated window at the bottom after repair.
+                self.chrome.demote_window(new_location[0])
+            except Exception:
+                pass
+
+        self.is_recording = False
+        self.waiting_for_page = False
+        self.should_auto_start = False
+        self.trigger_key_currently_pressed = False
+        self.current_state = "IDLE"
+        self.status_item.title = "Status: Ready"
+
+        # Demote controls Chrome window stacking; this restores the app focus
+        # so repair does not leave user on the dedicated Chrome window.
+        if previous_app:
+            try:
+                time.sleep(0.05)
+                previous_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+            except Exception:
+                pass
+
+        window_msg = "Window rebuilt" if window_ok else "Window rebuild failed"
+        if old_location and not closed_old:
+            window_msg = "Window rebuild attempted (old window close failed)"
+        logger.info(f"Reset complete: {tap_msg}; {window_msg}; state reset")
+        rumps.notification(
+            "MicPipe",
+            "Reset (Self-Check & Repair)",
+            f"{tap_msg} | {window_msg} | State reset"
+        )
 
     def event_callback(self, proxy, event_type, event, refcon):
         """System event callback: Monitor trigger key"""
@@ -669,20 +774,19 @@ class MicPipeApp(rumps.App):
         # Note: We don't pre-fill prompt here because it prevents the send button from appearing.
         # Instead, we'll combine prompt + transcription in stop_recording.
 
-        # 4. Start Chrome dictation
-        res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
-        if res.startswith("SUCCESS"):
-            self._update_service_tab_location_from_result(res)
+        # 4. Start Chrome dictation and verify recording really started
+        started, res = self._start_dictation_with_verification()
+        if started:
             self.is_recording = True
             self._play_sound(self._sound_start)
         else:
-            # Failed to start; inform the user so they know why nothing happened.
+            # Failed to start or verification failed.
             self.current_state = "IDLE"
             self.status_item.title = "Status: Ready"
             rumps.notification(
                 "MicPipe",
                 "Start Failed",
-                f"Could not start {self.current_service} dictation. Details: {res or 'UNKNOWN'}"
+                f"录音启动失败，请重试。Details: {res or 'UNKNOWN'}"
             )
 
         # 4. Restore focus
@@ -696,6 +800,7 @@ class MicPipeApp(rumps.App):
         poll_interval = 0.5  # Check every 0.5 seconds
         elapsed = 0
         btn_missing_hits = 0
+        reloaded_once = False
 
         while elapsed < max_wait_time:
             time.sleep(poll_interval)
@@ -722,6 +827,22 @@ class MicPipeApp(rumps.App):
                 return
             if status == "BTN_NOT_FOUND":
                 btn_missing_hits += 1
+                if (
+                    btn_missing_hits >= 4
+                    and (not reloaded_once)
+                    and self.service_tab_location
+                ):
+                    reloaded_once = True
+                    try:
+                        reloaded = self.chrome.reload_tab(*self.service_tab_location)
+                        logger.warning(
+                            f"Page ready check saw repeated BTN_NOT_FOUND; "
+                            f"reload attempted (success={reloaded})."
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to reload service tab during wait: {e}")
+                    btn_missing_hits = 0
+                    continue
                 if btn_missing_hits >= 6:
                     self.waiting_for_page = False
                     self.should_auto_start = False
@@ -745,9 +866,8 @@ class MicPipeApp(rumps.App):
         self.waiting_for_page = False
         self.should_auto_start = False
 
-        res = self.chrome.start_dictation(preferred_location=self.service_tab_location)
-        if res.startswith("SUCCESS"):
-            self._update_service_tab_location_from_result(res)
+        started, res = self._start_dictation_with_verification()
+        if started:
             self.is_recording = True
             self.current_state = "RECORDING"
             self.status_item.title = "Status: 🎤 Recording..."
@@ -756,7 +876,11 @@ class MicPipeApp(rumps.App):
             # Failed to start even after waiting
             self.current_state = "IDLE"
             self.status_item.title = "Status: Ready"
-            rumps.notification("MicPipe", "Error", "Failed to start recording. Please try again.")
+            rumps.notification(
+                "MicPipe",
+                "Error",
+                f"录音启动失败，请重试。Details: {res or 'UNKNOWN'}"
+            )
 
         # Restore focus to original app
         if self.target_app:
@@ -1022,7 +1146,7 @@ class MicPipeApp(rumps.App):
 
     def run_app(self):
         # Create Event Tap
-        tap = Quartz.CGEventTapCreate(
+        self.tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
             Quartz.kCGEventTapOptionDefault,
@@ -1031,13 +1155,13 @@ class MicPipeApp(rumps.App):
             None
         )
 
-        if not tap:
+        if not self.tap:
             rumps.alert("Permission Error", "Please grant Accessibility permissions in System Settings.")
             return
 
-        run_loop_source = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
+        run_loop_source = Quartz.CFMachPortCreateRunLoopSource(None, self.tap, 0)
         Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), run_loop_source, Quartz.kCFRunLoopCommonModes)
-        Quartz.CGEventTapEnable(tap, True)
+        Quartz.CGEventTapEnable(self.tap, True)
         
         # Start rumps main loop
         self.run()
