@@ -1166,11 +1166,13 @@ class MicPipeApp(rumps.App):
         # Start rumps main loop
         self.run()
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="MicPipe")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging and visible window")
     args = parser.parse_args()
-
     configure_logging(args.debug)
     app = MicPipeApp(debug=args.debug)
     app.run_app()
+
+if __name__ == "__main__":
+    main()

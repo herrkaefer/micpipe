@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "micpipe"
 version = "1.4.2"
@@ -10,5 +14,13 @@ dependencies = [
     "pyobjc-framework-quartz>=12.1",
     "pyperclip>=1.11.0",
     "rumps>=0.4.0",
-    "py2app>=0.28.8",
 ]
+
+[project.scripts]
+micpipe = "main:main"
+
+[project.optional-dependencies]
+dev = ["py2app>=0.28.8"]
+
+[tool.setuptools]
+py-modules = ["main", "chrome_script", "clipboard_guard", "paste_tool", "slot_editor", "state_manager"]
