@@ -18,7 +18,8 @@ def main():
         NSButton, NSFont, NSMakeRect, NSWindowStyleMaskTitled,
         NSWindowStyleMaskClosable, NSBackingStoreBuffered,
         NSBezelStyleRounded, NSFloatingWindowLevel,
-        NSApplicationActivationPolicyRegular
+        NSApplicationActivationPolicyRegular, NSMenu, NSMenuItem,
+        NSEventModifierFlagCommand
     )
     from Foundation import NSObject
     import objc
@@ -26,6 +27,35 @@ def main():
     # Create application with regular activation policy (shows in dock, can receive focus)
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+
+    # Standard edit shortcuts such as Cmd+A/C/V depend on menu actions
+    # being available in the responder chain for this standalone app.
+    main_menu = NSMenu.alloc().init()
+
+    app_menu_item = NSMenuItem.alloc().init()
+    app_menu = NSMenu.alloc().initWithTitle_("MicPipe")
+    quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+        "Quit MicPipe", "terminate:", "q"
+    )
+    app_menu.addItem_(quit_item)
+    app_menu_item.setSubmenu_(app_menu)
+    main_menu.addItem_(app_menu_item)
+
+    edit_menu_item = NSMenuItem.alloc().init()
+    edit_menu = NSMenu.alloc().initWithTitle_("Edit")
+    edit_actions = [
+        ("Select All", "selectAll:", "a", 0),
+        ("Cut", "cut:", "x", 0),
+        ("Copy", "copy:", "c", 0),
+        ("Paste", "paste:", "v", 0),
+    ]
+    for title, action, key, extra_flags in edit_actions:
+        item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+        item.setKeyEquivalentModifierMask_(NSEventModifierFlagCommand | extra_flags)
+        edit_menu.addItem_(item)
+    edit_menu_item.setSubmenu_(edit_menu)
+    main_menu.addItem_(edit_menu_item)
+    app.setMainMenu_(main_menu)
     
     result = {"saved": False, "title": "", "prompt": ""}
     
@@ -79,6 +109,9 @@ def main():
     prompt_text.setEditable_(True)
     prompt_text.setSelectable_(True)
     prompt_text.setAllowsUndo_(True)
+    prompt_text.setRichText_(False)
+    prompt_text.setImportsGraphics_(False)
+    prompt_text.setUsesRuler_(False)
     
     scroll_view.setDocumentView_(prompt_text)
     content_view.addSubview_(scroll_view)
@@ -96,8 +129,16 @@ def main():
         def cancelClicked_(self, sender):
             result["saved"] = False
             app.stop_(None)
-    
+
+    class WindowHandler(NSObject):
+        @objc.typedSelector(b'v@:@')
+        def windowWillClose_(self, notification):
+            result["saved"] = False
+            app.stop_(None)
+
     handler = ButtonHandler.alloc().init()
+    window_handler = WindowHandler.alloc().init()
+    window.setDelegate_(window_handler)
     
     cancel_btn = NSButton.alloc().initWithFrame_(NSMakeRect(380, 15, 100, 32))
     cancel_btn.setTitle_("Cancel")
