@@ -32,9 +32,8 @@ wheels = [
 [[package]]
 name = "micpipe"
 version = "1.4.2"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
-    { name = "py2app" },
     { name = "pynput" },
     { name = "pyobjc-framework-cocoa" },
     { name = "pyobjc-framework-quartz" },
@@ -42,15 +41,21 @@ dependencies = [
     { name = "rumps" },
 ]
 
+[package.optional-dependencies]
+dev = [
+    { name = "py2app" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "py2app", specifier = ">=0.28.8" },
+    { name = "py2app", marker = "extra == 'dev'", specifier = ">=0.28.8" },
     { name = "pynput", specifier = ">=1.8.1" },
     { name = "pyobjc-framework-cocoa", specifier = ">=12.1" },
     { name = "pyobjc-framework-quartz", specifier = ">=12.1" },
     { name = "pyperclip", specifier = ">=1.11.0" },
     { name = "rumps", specifier = ">=0.4.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "modulegraph"
