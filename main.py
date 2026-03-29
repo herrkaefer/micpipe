@@ -90,6 +90,8 @@ class MicPipeApp(rumps.App):
         self.dedicated_window = None
         self._sound_start = os.path.join(self.base_path, "assets", "sound_start.wav")
         self._sound_stop = os.path.join(self.base_path, "assets", "sound_stop.wav")
+        self._sound_voice_start = os.path.join(self.base_path, "assets", "sound_voice_start.wav")
+        self._sound_voice_stop = os.path.join(self.base_path, "assets", "sound_voice_stop.wav")
 
         # Ensure dedicated window exists at startup (in background)
         self._ensure_dedicated_window()
@@ -464,10 +466,10 @@ class MicPipeApp(rumps.App):
                 self.title = None
 
         elif self.current_state == "VOICE_CONVERSATION":
-            # Pulsating animation for voice conversation (reuse recording frames)
+            # Pulsating purple dot animation for voice conversation
             if self.animation_frame % 2 == 0:
                 frame = (self.animation_frame // 2) % 4 + 1
-                self.icon = os.path.join(self.base_path, f"assets/icon_rec_{frame}.png")
+                self.icon = os.path.join(self.base_path, f"assets/icon_voice_{frame}.png")
                 self.template = False
                 self.title = None
 
@@ -749,14 +751,14 @@ class MicPipeApp(rumps.App):
                 self.is_voice_conversation = True
                 self.current_state = "VOICE_CONVERSATION"
                 self.status_item.title = "Status: 🗣️ Voice Conversation"
-                self._play_sound(self._sound_start)
+                self._play_sound(self._sound_voice_start)
             else:
                 # Voice mode clicked but overlay not detected; may still be initializing
                 # Optimistically set active -- user can stop with Fn/Esc if needed
                 self.is_voice_conversation = True
                 self.current_state = "VOICE_CONVERSATION"
                 self.status_item.title = "Status: 🗣️ Voice Conversation"
-                self._play_sound(self._sound_start)
+                self._play_sound(self._sound_voice_start)
                 logger.warning("Voice overlay not detected after click, proceeding optimistically.")
         else:
             rumps.notification("MicPipe", "Voice Mode",
@@ -774,7 +776,7 @@ class MicPipeApp(rumps.App):
         if not self.is_voice_conversation:
             return
 
-        self._play_sound(self._sound_stop)
+        self._play_sound(self._sound_voice_stop)
 
         res = self.chrome.stop_voice_conversation(preferred_location=self.service_tab_location)
         if res and "VOICE_STOP_BTN_NOT_FOUND" in res:
