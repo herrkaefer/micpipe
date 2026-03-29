@@ -426,10 +426,14 @@ class ChatGPTChrome(ChromeController):
             if (document.readyState !== 'complete') return "PAGE_NOT_READY";
             var buttons = Array.from(document.querySelectorAll('button'));
             var btn = buttons.find(b =>
-                (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictate')) ||
+                (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictat')) ||
                 b.querySelector('svg path[d*="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"]')
             );
-            return btn ? "READY" : "BTN_NOT_FOUND";
+            if (btn) return "READY";
+            // Diagnostic: collect aria-labels of all buttons for debugging
+            var labels = buttons.map(function(b) { return b.ariaLabel || ''; })
+                                .filter(function(l) { return l; });
+            return "BTN_NOT_FOUND|LABELS=" + labels.join(',');
         })()
         '''
         return self._execute_js(js, preferred_location)
@@ -439,7 +443,7 @@ class ChatGPTChrome(ChromeController):
         (function() {
             var buttons = Array.from(document.querySelectorAll('button'));
             var btn = buttons.find(b =>
-                (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictate')) ||
+                (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictat')) ||
                 b.querySelector('svg path[d*="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"]')
             );
             if (btn) { btn.click(); return "START_DONE"; }
@@ -496,6 +500,119 @@ class ChatGPTChrome(ChromeController):
             var btn = buttons.find(b => b.ariaLabel && b.ariaLabel.toLowerCase().includes('stop dictation'));
             if (btn) { btn.click(); return "CANCEL_DONE"; }
             return "CANCEL_BTN_NOT_FOUND";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+    # ---- Voice Conversation (Advanced Voice Mode) ----
+
+    def start_voice_conversation(self, preferred_location=None):
+        """Click the 'Use Voice' / 'Start Voice' button to start a real-time voice conversation."""
+        js = '''
+        (function() {
+            var buttons = Array.from(document.querySelectorAll('button'));
+
+            // Strategy 1: aria-label based (current label: "Start Voice")
+            var btn = buttons.find(function(b) {
+                var label = (b.ariaLabel || '').toLowerCase();
+                return label.includes('start voice') ||
+                       label.includes('use voice') ||
+                       label.includes('voice mode');
+            });
+
+            // Strategy 2: data-testid based
+            if (!btn) {
+                btn = document.querySelector('button[data-testid="voice-button"]') ||
+                      document.querySelector('button[data-testid="composer-voice-button"]');
+            }
+
+            // Strategy 3: sibling of dictate button (voice button is right next to it)
+            if (!btn) {
+                var dictateBtn = buttons.find(function(b) {
+                    return (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictat'));
+                });
+                if (dictateBtn && dictateBtn.nextElementSibling &&
+                    dictateBtn.nextElementSibling.tagName === 'BUTTON') {
+                    btn = dictateBtn.nextElementSibling;
+                }
+            }
+
+            if (btn) { btn.click(); return "VOICE_START_CLICKED"; }
+            return "VOICE_BTN_NOT_FOUND";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+    def stop_voice_conversation(self, preferred_location=None):
+        """Stop an active voice conversation by clicking the end/stop button."""
+        js = '''
+        (function() {
+            var buttons = Array.from(document.querySelectorAll('button'));
+
+            // Strategy 1: aria-label for end/stop/close voice
+            var btn = buttons.find(function(b) {
+                var label = (b.ariaLabel || '').toLowerCase();
+                return label.includes('end voice') ||
+                       label.includes('stop voice') ||
+                       label.includes('end call') ||
+                       label.includes('hang up') ||
+                       label.includes('close voice');
+            });
+
+            // Strategy 2: data-testid
+            if (!btn) {
+                btn = document.querySelector('button[data-testid="voice-mode-close"]') ||
+                      document.querySelector('button[data-testid="end-voice"]') ||
+                      document.querySelector('button[data-testid="voice-stop"]');
+            }
+
+            if (btn) { btn.click(); return "VOICE_STOP_CLICKED"; }
+            return "VOICE_STOP_BTN_NOT_FOUND";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+    def is_voice_conversation_active(self, preferred_location=None):
+        """Check if a voice conversation overlay is currently active."""
+        js = '''
+        (function() {
+            // Look for voice overlay container or end button
+            var overlay = document.querySelector('[data-testid="voice-mode-container"]') ||
+                          document.querySelector('[data-testid="voice-conversation"]');
+            if (overlay) return "ACTIVE";
+
+            // Check for end-voice button (only exists during voice mode)
+            var buttons = Array.from(document.querySelectorAll('button'));
+            var endBtn = buttons.find(function(b) {
+                var label = (b.ariaLabel || '').toLowerCase();
+                return label.includes('end voice') ||
+                       label.includes('stop voice') ||
+                       label.includes('end call') ||
+                       label.includes('hang up');
+            });
+            if (endBtn) return "ACTIVE";
+
+            return "INACTIVE";
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
+    def is_voice_available(self, preferred_location=None):
+        """Check if the 'Use Voice' / 'Start Voice' button is present (requires ChatGPT Plus)."""
+        js = '''
+        (function() {
+            var buttons = Array.from(document.querySelectorAll('button'));
+            var btn = buttons.find(function(b) {
+                var label = (b.ariaLabel || '').toLowerCase();
+                return label.includes('start voice') ||
+                       label.includes('use voice') ||
+                       label.includes('voice mode');
+            });
+            if (!btn) {
+                btn = document.querySelector('button[data-testid="voice-button"]') ||
+                      document.querySelector('button[data-testid="composer-voice-button"]');
+            }
+            return btn ? "AVAILABLE" : "NOT_AVAILABLE";
         })()
         '''
         return self._execute_js(js, preferred_location)

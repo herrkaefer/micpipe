@@ -76,6 +76,8 @@ class MicPipeApp(rumps.App):
         self.chrome = self.chatgpt_chrome if self.current_service == "ChatGPT" else self.gemini_chrome  # Active controller
 
         self.is_recording = False
+        self.is_voice_conversation = False
+        self._voice_conversation_starting = False
         self.current_state = "IDLE"
         self.animation_frame = 0
         self.tap = None
@@ -163,6 +165,7 @@ class MicPipeApp(rumps.App):
         key_name = self._get_key_name(self.trigger_key)
         self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
         self.toggle_mode_info = rumps.MenuItem(f"  Click → Toggle Start/Stop", callback=None)
+        self.voice_mode_info = rumps.MenuItem("  Shift+Hold → Voice Conversation (ChatGPT)", callback=None)
         self.cancel_mode_info = rumps.MenuItem("  Press Esc → Cancel Dictation", callback=None)
         self.sound_toggle_item = rumps.MenuItem(
             "Sound: On" if self.sound_enabled else "Sound: Off",
@@ -180,6 +183,7 @@ class MicPipeApp(rumps.App):
             None,  # Separator
             self.hold_mode_info,
             self.toggle_mode_info,
+            self.voice_mode_info,
             self.cancel_mode_info,
             None,  # Separator
             self.sound_toggle_item,
@@ -461,6 +465,14 @@ class MicPipeApp(rumps.App):
                 self.template = False # Red color needs template=False
                 self.title = None
 
+        elif self.current_state == "VOICE_CONVERSATION":
+            # Pulsating animation for voice conversation (reuse recording frames)
+            if self.animation_frame % 2 == 0:
+                frame = (self.animation_frame // 2) % 4 + 1
+                self.icon = os.path.join(self.base_path, f"assets/icon_rec_{frame}.png")
+                self.template = False
+                self.title = None
+
         elif self.current_state == "WAITING" or self.current_state == "PROCESSING":
             # Spinning icon animation (every 2 frames = 5Hz)
             if self.animation_frame % 2 == 0:
@@ -576,6 +588,8 @@ class MicPipeApp(rumps.App):
                 pass
 
         self.is_recording = False
+        self.is_voice_conversation = False
+        self._voice_conversation_starting = False
         self.waiting_for_page = False
         self.should_auto_start = False
         self.trigger_key_currently_pressed = False
@@ -606,6 +620,9 @@ class MicPipeApp(rumps.App):
         if event_type == Quartz.kCGEventKeyDown:
             keycode = Quartz.CGEventGetIntegerValueField(event, 9)
             if keycode == 53:  # Esc
+                if self.is_voice_conversation:
+                    threading.Thread(target=self.stop_voice_conversation).start()
+                    return event
                 # Gemini does not support cancel, only ChatGPT does
                 if self.current_service == "ChatGPT" and (self.is_recording or self.waiting_for_page):
                     threading.Thread(target=self.cancel_recording).start()
@@ -615,7 +632,7 @@ class MicPipeApp(rumps.App):
             keycode = Quartz.CGEventGetIntegerValueField(event, 9)
             flags = Quartz.CGEventGetFlags(event)
 
-            # Handle trigger key - Dual Mode (Hold or Toggle)
+            # Handle trigger key - Dual Mode (Hold or Toggle) + Voice Conversation
             if keycode == self.trigger_key:
                 key_pressed = self._is_key_pressed(keycode, flags)
 
@@ -624,10 +641,19 @@ class MicPipeApp(rumps.App):
                     return event
                 self.trigger_key_currently_pressed = key_pressed
 
-                # Dual Mode behavior:
-                # - Hold Mode: Hold key to speak, release to stop
-                # - Toggle Mode: Quick click to start, click again to stop
+                # Voice conversation active: any press stops it
+                if self.is_voice_conversation:
+                    if key_pressed:
+                        threading.Thread(target=self.stop_voice_conversation).start()
+                    return event
+
+                # Shift+Trigger: start voice conversation (ChatGPT only)
                 if key_pressed and not self.is_recording:
+                    shift_held = bool(flags & Quartz.kCGEventFlagMaskShift)
+                    if shift_held and self.current_service == "ChatGPT":
+                        threading.Thread(target=self.start_voice_conversation).start()
+                        return event
+                    # Normal dictation (Hold/Toggle Mode, unchanged)
                     threading.Thread(target=lambda: self.start_recording(is_hold_mode=True)).start()
                 elif not key_pressed:
                     # User released trigger key
@@ -674,6 +700,98 @@ class MicPipeApp(rumps.App):
 
         self.current_state = "IDLE"
         self.status_item.title = "Status: Ready"
+
+    def start_voice_conversation(self):
+        """Start a ChatGPT real-time voice conversation (Shift+Trigger)."""
+        if self.is_recording or self.is_voice_conversation or self._voice_conversation_starting:
+            return
+        if self.current_service != "ChatGPT":
+            rumps.notification("MicPipe", "Voice Mode",
+                               "语音对话仅支持 ChatGPT 服务。")
+            return
+
+        self._voice_conversation_starting = True
+
+        # Record current app for focus restoration
+        self.target_app = NSWorkspace.sharedWorkspace().frontmostApplication()
+
+        # Ensure dedicated window exists
+        location, created = self._ensure_dedicated_window()
+        if not location:
+            self._voice_conversation_starting = False
+            rumps.notification("MicPipe", "Window Error",
+                               f"无法创建 {self.current_service} 专属窗口。")
+            return
+        self.service_tab_location = location
+
+        if created:
+            self._voice_conversation_starting = False
+            rumps.notification("MicPipe", "Voice Mode",
+                               "ChatGPT 页面正在加载，请稍后再试。")
+            return
+
+        # Check page readiness
+        ready_res = self.chrome.is_page_ready(preferred_location=self.service_tab_location)
+        status = self._get_ready_status(ready_res)
+        if status != "READY":
+            self._voice_conversation_starting = False
+            rumps.notification("MicPipe", "Voice Mode",
+                               "ChatGPT 页面尚未就绪，请稍后再试。")
+            return
+
+        # Click the "Use Voice" button
+        res = self.chrome.start_voice_conversation(preferred_location=self.service_tab_location)
+        if res and "VOICE_START_CLICKED" in res:
+            self._update_service_tab_location_from_result(res)
+            # Wait briefly for voice mode to initialize
+            time.sleep(1.0)
+            verify_res = self.chrome.is_voice_conversation_active(
+                preferred_location=self.service_tab_location)
+            if verify_res and "ACTIVE" in verify_res:
+                self.is_voice_conversation = True
+                self.current_state = "VOICE_CONVERSATION"
+                self.status_item.title = "Status: 🗣️ Voice Conversation"
+                self._play_sound(self._sound_start)
+            else:
+                # Voice mode clicked but overlay not detected; may still be initializing
+                # Optimistically set active -- user can stop with Fn/Esc if needed
+                self.is_voice_conversation = True
+                self.current_state = "VOICE_CONVERSATION"
+                self.status_item.title = "Status: 🗣️ Voice Conversation"
+                self._play_sound(self._sound_start)
+                logger.warning("Voice overlay not detected after click, proceeding optimistically.")
+        else:
+            rumps.notification("MicPipe", "Voice Mode",
+                               "未找到语音对话按钮，可能需要 ChatGPT Plus。")
+
+        self._voice_conversation_starting = False
+
+        # Restore focus to original app (audio still works through Chrome in background)
+        if self.target_app:
+            time.sleep(0.1)
+            self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+
+    def stop_voice_conversation(self):
+        """Stop an active voice conversation."""
+        if not self.is_voice_conversation:
+            return
+
+        self._play_sound(self._sound_stop)
+
+        res = self.chrome.stop_voice_conversation(preferred_location=self.service_tab_location)
+        if res and "VOICE_STOP_BTN_NOT_FOUND" in res:
+            logger.warning("Could not find voice stop button; conversation may still be active in Chrome.")
+
+        self.is_voice_conversation = False
+        self.current_state = "IDLE"
+        self.status_item.title = "Status: Ready"
+
+        # Demote the dedicated window
+        if self.service_tab_location:
+            try:
+                self.chrome.demote_window(self.service_tab_location[0])
+            except Exception:
+                pass
 
     def _is_key_pressed(self, keycode, flags):
         """Check if a specific key is pressed based on keycode and flags"""
@@ -726,9 +844,11 @@ class MicPipeApp(rumps.App):
             status = self._get_ready_status(res)
             if status == "READY":
                 return
-            if status == "BTN_NOT_FOUND":
+            if status.startswith("BTN_NOT_FOUND"):
                 btn_missing_hits += 1
+                logger.debug(f"Startup ready check: {res}")
                 if btn_missing_hits >= 6:
+                    logger.warning(f"Startup: dictate button not found after {btn_missing_hits} checks. Last result: {res}")
                     self._prompt_service_login("请在专属窗口登录后再试一次。")
                     return
             else:
@@ -736,7 +856,7 @@ class MicPipeApp(rumps.App):
 
     def start_recording(self, is_hold_mode=False):
         """Start recording (for both Hold and Toggle modes)"""
-        if self.is_recording:
+        if self.is_recording or self.is_voice_conversation:
             return
 
         # 1. Record the current focused application
