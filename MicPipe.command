@@ -8,7 +8,7 @@ export PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 if command -v uv &> /dev/null; then
     # uv handles venv creation and dependency installation automatically
     echo "🚀 Starting MicPipe using uv..."
-    RUN_CMD="uv run python main.py"
+    RUN_CMD="uv run python micpipe.py"
 else
     echo "⚙️  uv not found, using pip..."
 
@@ -47,7 +47,7 @@ else
         echo "✅ Dependencies installed."
     fi
 
-    RUN_CMD=".venv/bin/python main.py"
+    RUN_CMD=".venv/bin/python micpipe.py"
 fi
 
 # Run the application in the background

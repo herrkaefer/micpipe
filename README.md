@@ -44,7 +44,7 @@ Double-click **`MicPipe.command`**. This script will launch the app in the backg
 
 ### Option 2: Manual Launch
 ```bash
-uv run python main.py
+uv run python micpipe.py
 ```
 
 ## Installation
@@ -68,7 +68,7 @@ Enable **Allow JavaScript from Apple Events** in Chrome:
 ### 3. Run the app
 
 - **MicPipe.command**: Double-click to run. This script handles permissions more reliably and will auto-close the terminal window once the app is running in the background (recommended).
-- **Terminal**: Run `uv run python main.py`.
+- **Terminal**: Run `uv run python micpipe.py`.
 
 > **Note for first-time use**: Since this is an unsigned app, macOS might block it. If so, **Right-click** `MicPipe.command` and select **Open**, then click **Open** again in the warning dialog.
 
@@ -97,6 +97,18 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 3. Press the **trigger key** again or **Esc** to end the conversation
 
 > ⚠️ Voice Conversation requires **ChatGPT Plus** and is only available when the service is set to ChatGPT.
+
+### Voice CLI
+
+Use the CLI when you want to trigger voice mode from **Shortcuts** or **Siri**:
+
+```bash
+python micpipe.py voice start
+python micpipe.py voice stop
+python micpipe.py voice toggle
+```
+
+For automation, prefer **`start`** and **`stop`** because they are idempotent. `toggle` is mainly useful for manual scripting.
 
 ### Cancel Recording
 

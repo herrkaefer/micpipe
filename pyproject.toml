@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [project.scripts]
-micpipe = "main:main"
+micpipe = "micpipe:main"
 
 [project.optional-dependencies]
 dev = ["py2app>=0.28.8"]
 
 [tool.setuptools]
-py-modules = ["main", "chrome_script", "clipboard_guard", "paste_tool", "slot_editor", "state_manager"]
+py-modules = ["micpipe", "main", "chrome_script", "clipboard_guard", "paste_tool", "slot_editor", "state_manager"]
