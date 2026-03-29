@@ -13,8 +13,6 @@ class MicPipeStateStore:
         (61, "Left Option (⌥)"),       # Left Option/Alt
         (59, "Right Control (⌃)"),     # Right Control
         (62, "Left Control (⌃)"),      # Left Control
-        (60, "Right Shift (⇧)"),       # Right Shift
-        (56, "Left Shift (⇧)"),        # Left Shift
     ]
 
     DEFAULT_TRIGGER_KEY = 63  # Fn key

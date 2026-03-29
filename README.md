@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.4.2`
+Current version: `v1.5.0`
 
 
 [中文](README.zh-CN.md)
@@ -20,6 +20,7 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 
 ### Key features
 - **One key, two modes**: **hold to speak** or **click to toggle**
+- **Voice Conversation**: Press **Shift + trigger key** to start a real-time voice conversation with ChatGPT (Advanced Voice Mode). Press the trigger key again or **Esc** to end.
 - **Customizable Global Hotkey**: Select your preferred trigger key from the menu (defaults to Fn)
 - **Invisible Dedicated Window**: Transcription service runs in a dedicated hidden Chrome window to reduce flickering and interference with your normal browsing
 - **Press Esc** during recording to cancel dictation (no paste)
@@ -89,6 +90,14 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 3. **Tap Fn again** to stop and transcribe
 4. Transcribed text is automatically pasted into the original app
 
+### Voice Conversation (ChatGPT only)
+
+1. Hold **Shift** and press your **trigger key** (e.g., Shift+Fn) to start a real-time voice conversation with ChatGPT
+2. ChatGPT will listen and respond with voice — no text pasting involved
+3. Press the **trigger key** again or **Esc** to end the conversation
+
+> ⚠️ Voice Conversation requires **ChatGPT Plus** and is only available when the service is set to ChatGPT.
+
 ### Cancel Recording
 
 - Press **Esc** during recording to cancel
@@ -97,7 +106,7 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 ### Menu Bar Icon Status
 
 - 🎙️ Microphone icon: Idle
-- 🔴 Pulsing red: Recording
+- 🔴 Pulsing red: Recording / Voice Conversation
 - ⚙️ Circle icon: Transcribing
 
 Click the menu item to toggle sound cues.
@@ -113,7 +122,7 @@ You can choose your preferred trigger key directly from the menu:
 
 1. Click the **MicPipe** icon in the menu bar.
 2. Go to **Hotkey**.
-3. Select from supported keys: **Fn**, **Command**, **Option**, **Control**, or **Shift**.
+3. Select from supported keys: **Fn**, **Command**, **Option**, or **Control**.
 
 The setting is saved automatically and takes effect immediately.
  

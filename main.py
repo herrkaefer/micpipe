@@ -23,8 +23,6 @@ from state_manager import MicPipeStateStore
 #   61  - Left Option
 #   59  - Right Control
 #   62  - Left Control
-#   60  - Left Shift
-#   56  - Right Shift
 #   48  - Tab
 #   53  - Escape
 #   51  - Delete (Backspace)
@@ -32,7 +30,7 @@ from state_manager import MicPipeStateStore
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.4.2"
+__version__ = "1.5.0"
 
 def configure_logging(debug: bool):
     logging.basicConfig(
@@ -165,7 +163,7 @@ class MicPipeApp(rumps.App):
         key_name = self._get_key_name(self.trigger_key)
         self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
         self.toggle_mode_info = rumps.MenuItem(f"  Click → Toggle Start/Stop", callback=None)
-        self.voice_mode_info = rumps.MenuItem("  Shift+Hold → Voice Conversation (ChatGPT)", callback=None)
+        self.voice_mode_info = rumps.MenuItem("  Shift+Press → Voice Conversation (ChatGPT)", callback=None)
         self.cancel_mode_info = rumps.MenuItem("  Press Esc → Cancel Dictation", callback=None)
         self.sound_toggle_item = rumps.MenuItem(
             "Sound: On" if self.sound_enabled else "Sound: Off",
