@@ -952,7 +952,7 @@ class MicPipeApp(rumps.App):
                 )
                 if not revealed:
                     logger.warning("Failed to reveal ChatGPT window before starting voice.")
-                time.sleep(0.2)
+                time.sleep(0.8)
             except Exception as e:
                 logger.warning(f"Failed to reveal ChatGPT window before starting voice: {e}")
 
