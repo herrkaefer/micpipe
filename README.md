@@ -2,7 +2,7 @@
 
 # MicPipe 
 
-Current version: `v1.5.0`
+Current version: `v1.5.1`
 
 
 [中文](README.zh-CN.md)
@@ -19,16 +19,29 @@ MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dic
 
 
 ### Key features
-- **One key, two modes**: **hold to speak** or **click to toggle**
-- **Voice Conversation**: Press **Shift + trigger key** to start a real-time voice conversation with ChatGPT (Advanced Voice Mode). Press the trigger key again or **Esc** to end.
-- **Customizable Global Hotkey**: Select your preferred trigger key from the menu (defaults to Fn)
-- **Invisible Dedicated Window**: Transcription service runs in a dedicated hidden Chrome window to reduce flickering and interference with your normal browsing
-- **Press Esc** during recording to cancel dictation (no paste)
-- **AI Pipe**: Automatically post-process your voice transcription through AI using preset prompts (e.g., Grammar Fix, Email Writer, Vibe Coder)
-- **Editable Slots**: Customize titles and prompts for up to 5 processing slots directly from the menu
-- **Conversation Mode**: Issue direct voice commands to the AI without preset prompts
-- **State Persistence**: Your settings (chosen service, sound, hotkey, and custom AI prompts) are automatically saved and restored on startup
-- **Clipboard Preservation**: Automatically restores your original clipboard content after pasting
+- **Dictation, two trigger styles**: Use **hold to speak** or **click to toggle** for one-shot speech-to-text
+- **AI Pipe for dictation**: Automatically post-process transcribed text through AI using preset prompts such as Grammar Fix, Email Writer, and Vibe Coder
+- **Direct AI mode for dictation**: Send spoken input to the AI without a preset prompt when you want free-form commands instead of a fixed rewrite step
+- **Editable dictation slots**: Customize titles and prompts for up to 5 processing slots directly from the menu
+- **Realtime voice chat**: Press **Control + Fn** to start ChatGPT's realtime voice conversation mode. Press **Fn** again or **Esc** to end.
+- **Customizable dictation hotkey**: Select your preferred trigger key from the menu (defaults to Fn)
+- **Invisible dedicated window**: The service runs in a hidden Chrome window to reduce flickering and avoid interfering with your normal browsing
+- **Press Esc to cancel dictation**: Cancel recording without pasting anything
+- **State persistence**: Your settings (chosen service, sound, hotkey, and custom AI prompts) are automatically saved and restored on startup
+- **Clipboard preservation**: Automatically restores your original clipboard content after pasting
+
+### How it works
+
+MicPipe does not implement its own speech recognition or voice engine. Instead, it keeps a dedicated hidden Chrome window pointed at ChatGPT and programmatically clicks the same two ChatGPT controls you would click yourself:
+
+- **Dictate** for one-shot speech-to-text
+- **Voice** for realtime voice conversation
+
+That is the core idea of the app: reuse ChatGPT's existing web UI, but make it available system-wide through a lightweight macOS menu bar app and global shortcuts.
+
+<img src="demo/chatgpt-ui.png" width="900" alt="ChatGPT composer with the Dictate and Voice buttons highlighted">
+
+MicPipe then handles the desktop glue around those actions: managing the hidden window, triggering the right button at the right time, pasting transcribed text back into your current app, and preserving your clipboard.
 
 
 ## Requirements
@@ -44,6 +57,7 @@ Double-click **`MicPipe.command`**. This script will launch the app in the backg
 
 ### Option 2: Manual Launch
 ```bash
+uv sync
 uv run python micpipe.py
 ```
 
@@ -54,6 +68,12 @@ uv run python micpipe.py
 - Python 3.11+
 - Google Chrome
 - `uv` (Python package manager)
+
+Then initialize the project environment:
+
+```bash
+uv sync
+```
 
 ### 2. Configure Chrome (important)
 
@@ -92,9 +112,9 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 
 ### Voice Conversation (ChatGPT only)
 
-1. Hold **Shift** and press your **trigger key** (e.g., Shift+Fn) to start a real-time voice conversation with ChatGPT
+1. Press **Control+Fn** to start a real-time voice conversation with ChatGPT
 2. ChatGPT will listen and respond with voice — no text pasting involved
-3. Press the **trigger key** again or **Esc** to end the conversation
+3. Press **Fn** again or **Esc** to end the conversation
 
 > ⚠️ Voice Conversation requires **ChatGPT Plus** and is only available when the service is set to ChatGPT.
 
@@ -103,12 +123,35 @@ MicPipe uses the **Fn key** to trigger recording, with two operation modes:
 Use the CLI when you want to trigger voice mode from **Shortcuts** or **Siri**:
 
 ```bash
-python micpipe.py voice start
-python micpipe.py voice stop
-python micpipe.py voice toggle
+uv run micpipe voice start
+uv run micpipe voice stop
+uv run micpipe voice toggle
 ```
 
 For automation, prefer **`start`** and **`stop`** because they are idempotent. `toggle` is mainly useful for manual scripting.
+
+For **Shortcuts** on macOS, the simplest setup is:
+
+1. Create one shortcut named `Start ChatGPT Voice`
+2. Create another shortcut named `Stop ChatGPT Voice`
+3. In each shortcut, add **Run Shell Script**
+4. Use a script like this:
+
+```bash
+cd path-to-micpipe
+path-to-micpipe/.venv/bin/python path-to-micpipe/micpipe.py voice start
+```
+
+or for stop:
+
+```bash
+cd path-to-micpipe
+path-to-micpipe/.venv/bin/python path-to-micpipe/micpipe.py voice stop
+```
+
+5. Say the shortcut name directly to Siri
+
+MicPipe must already be running in the menu bar for these commands to work.
 
 ### Cancel Recording
 
@@ -118,7 +161,8 @@ For automation, prefer **`start`** and **`stop`** because they are idempotent. `
 ### Menu Bar Icon Status
 
 - 🎙️ Microphone icon: Idle
-- 🔴 Pulsing red: Recording / Voice Conversation
+- 🔴 Pulsing red: Recording / dictation in progress
+- 🟣 Pulsing voice icon: ChatGPT realtime voice conversation is active
 - ⚙️ Circle icon: Transcribing
 
 Click the menu item to toggle sound cues.
@@ -134,7 +178,7 @@ You can choose your preferred trigger key directly from the menu:
 
 1. Click the **MicPipe** icon in the menu bar.
 2. Go to **Hotkey**.
-3. Select from supported keys: **Fn**, **Command**, **Option**, or **Control**.
+3. Select from supported keys: **Fn**, **Left/Right Option**, or **Left/Right Shift**.
 
 The setting is saved automatically and takes effect immediately.
  
@@ -142,7 +186,7 @@ The setting is saved automatically and takes effect immediately.
 
 AI Pipe allows you to automatically process your voice transcription through AI before pasting it. You can use it to fix grammar, rewrite text into a formal email, or organize coding instructions.
  
-+> ⚠️ **Note**: Currently, AI Pipe features (including Conversation Mode and Preset Prompts) are only supported for **ChatGPT**. Gemini currently only supports standard voice-to-text.
+> ⚠️ **Note**: Currently, AI Pipe features (including Conversation Mode and Preset Prompts) are only supported for **ChatGPT**. Gemini currently only supports standard voice-to-text.
 
 ### How to Use
 
