@@ -63,6 +63,7 @@ class MicPipeApp(rumps.App):
         self.state_store = MicPipeStateStore(self.state_path, logger)
         self.debug = debug
         self.dedicated_bounds = self._compute_dedicated_bounds(debug)
+        self.voice_bounds = self._compute_voice_bounds(debug)
 
         # Load saved state
         state = self.state_store.load()
@@ -384,6 +385,26 @@ class MicPipeApp(rumps.App):
             return (left, top, left + width, top + height)
         except Exception:
             return (20000, 2000, 20000 + width, 2000 + height)
+
+    def _compute_voice_bounds(self, debug: bool):
+        width = 760
+        height = 620
+
+        if debug:
+            return (120, 90, 120 + width, 90 + height)
+
+        try:
+            screens = NSScreen.screens()
+            if not screens:
+                return (160, 100, 160 + width, 100 + height)
+            visible = screens[0].visibleFrame()
+            margin_left = 32
+            margin_top = 72
+            left = int(visible.origin.x + margin_left)
+            top = int(margin_top)
+            return (left, top, left + width, top + height)
+        except Exception:
+            return (160, 100, 160 + width, 100 + height)
 
     def _get_ready_status(self, res: str) -> str:
         if not res or not res.startswith("SUCCESS"):
@@ -912,6 +933,17 @@ class MicPipeApp(rumps.App):
                                "ChatGPT 页面尚未就绪，请稍后再试。")
             return
 
+        if self.service_tab_location:
+            try:
+                revealed = self.chrome.reveal_window(
+                    self.service_tab_location[0], bounds=self.voice_bounds
+                )
+                if not revealed:
+                    logger.warning("Failed to reveal ChatGPT window before starting voice.")
+                time.sleep(0.2)
+            except Exception as e:
+                logger.warning(f"Failed to reveal ChatGPT window before starting voice: {e}")
+
         # Click the "Use Voice" button. If the composer has pending text,
         # clear the draft first and wait for the voice button to return.
         res = self.chrome.start_voice_conversation(preferred_location=self.service_tab_location)
@@ -975,8 +1007,8 @@ class MicPipeApp(rumps.App):
 
         self._voice_conversation_starting = False
 
-        # Restore focus to original app (audio still works through Chrome in background)
-        if self.target_app:
+        # Keep ChatGPT visible during realtime voice. If start failed, restore focus.
+        if self.target_app and not self.is_voice_conversation:
             time.sleep(0.1)
             self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
 
@@ -1001,6 +1033,13 @@ class MicPipeApp(rumps.App):
         if self.service_tab_location:
             try:
                 self.chrome.demote_window(self.service_tab_location[0])
+            except Exception:
+                pass
+
+        if self.target_app:
+            try:
+                time.sleep(0.1)
+                self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
             except Exception:
                 pass
 
