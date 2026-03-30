@@ -874,7 +874,7 @@ class MicPipeApp(rumps.App):
         self.status_item.title = "Status: Ready"
 
     def start_voice_conversation(self):
-        """Start a ChatGPT real-time voice conversation (Shift+Trigger)."""
+        """Start a ChatGPT real-time voice conversation."""
         if self.is_recording or self.is_voice_conversation or self._voice_conversation_starting:
             return
         if self.current_service != "ChatGPT":
@@ -912,8 +912,29 @@ class MicPipeApp(rumps.App):
                                "ChatGPT 页面尚未就绪，请稍后再试。")
             return
 
-        # Click the "Use Voice" button
+        # Click the "Use Voice" button. If the composer has pending text,
+        # clear the draft first and wait for the voice button to return.
         res = self.chrome.start_voice_conversation(preferred_location=self.service_tab_location)
+        if res and "VOICE_DRAFT_CLEARED" in res:
+            logger.info("Voice start fallback: cleared pending composer draft before retry.")
+            max_wait_attempts = 10
+            for attempt in range(max_wait_attempts):
+                time.sleep(0.25)
+                res = self.chrome.start_voice_conversation(preferred_location=self.service_tab_location)
+                if res and "VOICE_START_CLICKED" in res:
+                    logger.info(
+                        f"Voice button became available after clearing pending draft "
+                        f"(wait {0.25 * (attempt + 1):.2f}s)."
+                    )
+                    break
+                if res and "VOICE_DRAFT_CLEARED" in res:
+                    logger.info("Voice start retry cleared pending composer draft again.")
+                    continue
+            else:
+                logger.warning(
+                    "Voice button did not reappear after clearing pending draft."
+                )
+
         if res and "VOICE_START_CLICKED" in res:
             self._update_service_tab_location_from_result(res)
             # Wait briefly for voice mode to initialize

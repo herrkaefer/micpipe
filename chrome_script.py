@@ -510,34 +510,65 @@ class ChatGPTChrome(ChromeController):
         """Click the 'Use Voice' / 'Start Voice' button to start a real-time voice conversation."""
         js = '''
         (function() {
-            var buttons = Array.from(document.querySelectorAll('button'));
+            function findVoiceButton(buttons) {
+                var btn = buttons.find(function(b) {
+                    var label = (b.ariaLabel || '').toLowerCase();
+                    return label.includes('start voice') ||
+                           label.includes('use voice') ||
+                           label.includes('voice mode');
+                });
 
-            // Strategy 1: aria-label based (current label: "Start Voice")
-            var btn = buttons.find(function(b) {
-                var label = (b.ariaLabel || '').toLowerCase();
-                return label.includes('start voice') ||
-                       label.includes('use voice') ||
-                       label.includes('voice mode');
-            });
+                if (!btn) {
+                    btn = document.querySelector('button[data-testid="voice-button"]') ||
+                          document.querySelector('button[data-testid="composer-voice-button"]');
+                }
 
-            // Strategy 2: data-testid based
-            if (!btn) {
-                btn = document.querySelector('button[data-testid="voice-button"]') ||
-                      document.querySelector('button[data-testid="composer-voice-button"]');
+                if (!btn) {
+                    var dictateBtn = buttons.find(function(b) {
+                        return (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictat'));
+                    });
+                    if (dictateBtn && dictateBtn.nextElementSibling &&
+                        dictateBtn.nextElementSibling.tagName === 'BUTTON') {
+                        btn = dictateBtn.nextElementSibling;
+                    }
+                }
+
+                return btn;
             }
 
-            // Strategy 3: sibling of dictate button (voice button is right next to it)
-            if (!btn) {
-                var dictateBtn = buttons.find(function(b) {
-                    return (b.ariaLabel && b.ariaLabel.toLowerCase().includes('dictat'));
-                });
-                if (dictateBtn && dictateBtn.nextElementSibling &&
-                    dictateBtn.nextElementSibling.tagName === 'BUTTON') {
-                    btn = dictateBtn.nextElementSibling;
+            var buttons = Array.from(document.querySelectorAll('button'));
+
+            var btn = findVoiceButton(buttons);
+
+            if (btn) { btn.click(); return "VOICE_START_CLICKED"; }
+
+            var composer = document.querySelector('#prompt-textarea') ||
+                           document.querySelector('[data-testid="prompt-textarea"]');
+            var composerText = '';
+            try {
+                composerText = ((composer && (composer.innerText || composer.textContent)) || '').trim();
+            } catch (e) {}
+
+            if (composer && composerText) {
+                try {
+                    composer.focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('delete', false, null);
+                    if ((composer.innerText || composer.textContent || '').trim()) {
+                        if (composer.tagName === 'TEXTAREA' || typeof composer.value === 'string') {
+                            composer.value = '';
+                        } else {
+                            composer.innerText = '';
+                        }
+                        composer.dispatchEvent(new Event('input', { bubbles: true }));
+                        composer.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    return "VOICE_DRAFT_CLEARED";
+                } catch (e) {
+                    return "VOICE_DRAFT_CLEAR_FAILED";
                 }
             }
 
-            if (btn) { btn.click(); return "VOICE_START_CLICKED"; }
             return "VOICE_BTN_NOT_FOUND";
         })()
         '''
