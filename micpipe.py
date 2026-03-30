@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+import json
 import Quartz
 import threading
 import re
@@ -31,6 +32,7 @@ from state_manager import MicPipeStateStore
 #   49  - Space
 # ============================================================
 __version__ = "1.5.0"
+VOICE_IDLE_TIMEOUT_SECONDS = 20
 
 def configure_logging(debug: bool):
     logging.basicConfig(
@@ -76,6 +78,11 @@ class MicPipeApp(rumps.App):
         self.is_recording = False
         self.is_voice_conversation = False
         self._voice_conversation_starting = False
+        self._voice_activity_signature = ""
+        self._last_voice_activity_at = 0.0
+        self._last_voice_activity_check_at = 0.0
+        self._voice_activity_check_inflight = False
+        self._voice_idle_stop_requested = False
         self.current_state = "IDLE"
         self.animation_frame = 0
         self.tap = None
@@ -460,12 +467,102 @@ class MicPipeApp(rumps.App):
         except Exception as e:
             logger.debug(f"Failed to process CLI command file: {e}")
 
+    def _extract_success_payload(self, result: str) -> str:
+        if not result or not result.startswith("SUCCESS:"):
+            return ""
+        payload = result.split("SUCCESS:", 1)[1]
+        return re.sub(r"^(?:USED_WIN_ID|FALLBACK_WIN_ID)=\d+,TAB=\d+:", "", payload, count=1)
+
+    def _reset_voice_activity_tracking(self):
+        self._voice_activity_signature = ""
+        self._last_voice_activity_at = 0.0
+        self._last_voice_activity_check_at = 0.0
+        self._voice_activity_check_inflight = False
+        self._voice_idle_stop_requested = False
+
+    def _summarize_voice_activity_signature(self, signature: str) -> str:
+        if not signature:
+            return "<empty>"
+        compact = re.sub(r"\s+", " ", signature).strip()
+        if len(compact) > 120:
+            compact = "..." + compact[-117:]
+        return compact
+
+    def _get_voice_activity_signature(self):
+        if not self.service_tab_location or self.current_service != "ChatGPT":
+            return False, ""
+        try:
+            res = self.chrome.get_voice_activity_snapshot(
+                preferred_location=self.service_tab_location
+            )
+        except Exception as e:
+            logger.debug(f"Voice activity snapshot failed: {e}")
+            return False, ""
+        payload = self._extract_success_payload(res)
+        if not payload:
+            return False, ""
+        try:
+            data = json.loads(payload)
+        except Exception as e:
+            logger.debug(f"Failed to parse voice activity snapshot: {e}; payload={payload[:200]}")
+            return False, ""
+        assistant_text = str(data.get("assistant_text") or "").strip()
+        user_text = str(data.get("user_text") or "").strip()
+        assistant_count = int(data.get("assistant_count") or 0)
+        user_count = int(data.get("user_count") or 0)
+        signature = (
+            f"a#{assistant_count}:{assistant_text}"
+            f"|u#{user_count}:{user_text}"
+        )
+        return bool(data.get("active")), signature
+
+    def _check_voice_idle_timeout(self):
+        try:
+            _active, signature = self._get_voice_activity_signature()
+            now = time.time()
+            self._last_voice_activity_check_at = now
+            if not self.is_voice_conversation:
+                return
+            if signature and signature != self._voice_activity_signature:
+                self._voice_activity_signature = signature
+                self._last_voice_activity_at = now
+                logger.info(
+                    "Voice activity detected; idle timer reset. "
+                    f"text={self._summarize_voice_activity_signature(signature)}"
+                )
+                return
+            if not self._last_voice_activity_at:
+                self._last_voice_activity_at = now
+                logger.info("Voice idle watcher initialized.")
+            idle_for = now - self._last_voice_activity_at
+            logger.debug(
+                f"Voice idle check: idle_for={idle_for:.1f}s, "
+                f"text={self._summarize_voice_activity_signature(self._voice_activity_signature)}"
+            )
+            if idle_for >= VOICE_IDLE_TIMEOUT_SECONDS and not self._voice_idle_stop_requested:
+                self._voice_idle_stop_requested = True
+                logger.info(
+                    f"Voice conversation idle for {idle_for:.1f}s; auto-stopping."
+                )
+                threading.Thread(target=self.stop_voice_conversation, daemon=True).start()
+        except Exception as e:
+            logger.debug(f"Voice idle check failed: {e}")
+        finally:
+            self._voice_activity_check_inflight = False
+
     def _update_animation(self, _):
         """Update menu bar icon based on current state"""
         self.animation_frame += 1
         # Check for CLI commands (every 5 frames = 2Hz, lightweight stat() call)
         if self.animation_frame % 5 == 0:
             self._check_cmd_file()
+        if (
+            self.is_voice_conversation
+            and not self._voice_activity_check_inflight
+            and self.animation_frame % 10 == 0
+        ):
+            self._voice_activity_check_inflight = True
+            threading.Thread(target=self._check_voice_idle_timeout, daemon=True).start()
         if self.tap and self.animation_frame % 50 == 0:
             try:
                 if not Quartz.CGEventTapIsEnabled(self.tap):
@@ -614,6 +711,7 @@ class MicPipeApp(rumps.App):
         self.is_recording = False
         self.is_voice_conversation = False
         self._voice_conversation_starting = False
+        self._reset_voice_activity_tracking()
         self.waiting_for_page = False
         self.should_auto_start = False
         self.trigger_key_currently_pressed = False
@@ -735,6 +833,7 @@ class MicPipeApp(rumps.App):
             return
 
         self._voice_conversation_starting = True
+        self._reset_voice_activity_tracking()
 
         # Record current app for focus restoration
         self.target_app = NSWorkspace.sharedWorkspace().frontmostApplication()
@@ -775,6 +874,10 @@ class MicPipeApp(rumps.App):
                 self.is_voice_conversation = True
                 self.current_state = "VOICE_CONVERSATION"
                 self.status_item.title = "Status: 🗣️ Voice Conversation"
+                self._last_voice_activity_at = time.time()
+                logger.info(
+                    f"Voice conversation started; idle timeout={VOICE_IDLE_TIMEOUT_SECONDS}s."
+                )
                 self._play_sound(self._sound_voice_start)
             else:
                 # Voice mode clicked but overlay not detected; may still be initializing
@@ -782,6 +885,11 @@ class MicPipeApp(rumps.App):
                 self.is_voice_conversation = True
                 self.current_state = "VOICE_CONVERSATION"
                 self.status_item.title = "Status: 🗣️ Voice Conversation"
+                self._last_voice_activity_at = time.time()
+                logger.info(
+                    "Voice conversation started optimistically; "
+                    f"idle timeout={VOICE_IDLE_TIMEOUT_SECONDS}s."
+                )
                 self._play_sound(self._sound_voice_start)
                 logger.warning("Voice overlay not detected after click, proceeding optimistically.")
         else:
@@ -807,6 +915,8 @@ class MicPipeApp(rumps.App):
             logger.warning("Could not find voice stop button; conversation may still be active in Chrome.")
 
         self.is_voice_conversation = False
+        self._reset_voice_activity_tracking()
+        logger.info("Voice conversation stopped.")
         self.current_state = "IDLE"
         self.status_item.title = "Status: Ready"
 

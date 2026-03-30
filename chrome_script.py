@@ -617,6 +617,51 @@ class ChatGPTChrome(ChromeController):
         '''
         return self._execute_js(js, preferred_location)
 
+    def get_voice_activity_snapshot(self, preferred_location=None):
+        """Capture the latest conversation message text for voice idle detection."""
+        js = '''
+        (function() {
+            function normalizeText(text) {
+                return (text || '')
+                    .replace(/\\s+/g, ' ')
+                    .trim()
+                    .slice(-300);
+            }
+
+            function getLastMessage(role) {
+                var nodes = Array.from(document.querySelectorAll('[data-message-author-role="' + role + '"]'));
+                for (var i = nodes.length - 1; i >= 0; i--) {
+                    var text = normalizeText(nodes[i].innerText || nodes[i].textContent || '');
+                    if (text) {
+                        return { text: text, count: nodes.length };
+                    }
+                }
+                return { text: '', count: nodes.length };
+            }
+
+            var buttons = Array.from(document.querySelectorAll('button'));
+            var endBtn = buttons.find(function(b) {
+                var label = (b.ariaLabel || b.innerText || '').toLowerCase();
+                return label.includes('end voice') ||
+                       label.includes('stop voice') ||
+                       label.includes('end call') ||
+                       label.includes('hang up') ||
+                       label === 'end';
+            });
+
+            var assistant = getLastMessage('assistant');
+            var user = getLastMessage('user');
+            return JSON.stringify({
+                active: !!endBtn,
+                assistant_text: assistant.text,
+                assistant_count: assistant.count,
+                user_text: user.text,
+                user_count: user.count
+            });
+        })()
+        '''
+        return self._execute_js(js, preferred_location)
+
     def get_text_and_clear(self, activate_first=True, preferred_location=None):
         js_code = '''
         (function() {
