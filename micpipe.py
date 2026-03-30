@@ -479,6 +479,18 @@ class MicPipeApp(rumps.App):
             logger.error(f"Failed to ensure dedicated window: {e}")
             return None, False
 
+    def _hide_dedicated_window(self):
+        if not self.service_tab_location:
+            return
+        try:
+            self.chrome.set_window_bounds(self.service_tab_location[0], self.dedicated_bounds)
+        except Exception as e:
+            logger.debug(f"Failed to restore dedicated window bounds: {e}")
+        try:
+            self.chrome.demote_window(self.service_tab_location[0])
+        except Exception as e:
+            logger.debug(f"Failed to demote dedicated window: {e}")
+
     def select_chatgpt(self, _):
         """Switch to ChatGPT service."""
         if self.is_recording:
@@ -1007,7 +1019,9 @@ class MicPipeApp(rumps.App):
 
         self._voice_conversation_starting = False
 
-        # Keep ChatGPT visible during realtime voice. If start failed, restore focus.
+        # Keep ChatGPT visible during realtime voice. If start failed, restore focus and hide the window again.
+        if not self.is_voice_conversation:
+            self._hide_dedicated_window()
         if self.target_app and not self.is_voice_conversation:
             time.sleep(0.1)
             self.target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
@@ -1029,12 +1043,7 @@ class MicPipeApp(rumps.App):
         self.current_state = "IDLE"
         self.status_item.title = "Status: Ready"
 
-        # Demote the dedicated window
-        if self.service_tab_location:
-            try:
-                self.chrome.demote_window(self.service_tab_location[0])
-            except Exception:
-                pass
+        self._hide_dedicated_window()
 
         if self.target_app:
             try:
