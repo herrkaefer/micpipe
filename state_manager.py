@@ -7,15 +7,14 @@ class MicPipeStateStore:
     # These are common keys used for voice input in various apps
     HOTKEY_OPTIONS = [
         (63, "Fn"),                    # Function key (default)
-        (54, "Right Command (⌘)"),     # Right Cmd
-        (55, "Left Command (⌘)"),      # Left Cmd
         (58, "Right Option (⌥)"),      # Right Option/Alt
         (61, "Left Option (⌥)"),       # Left Option/Alt
-        (59, "Right Control (⌃)"),     # Right Control
-        (62, "Left Control (⌃)"),      # Left Control
+        (60, "Left Shift (⇧)"),        # Left Shift
+        (56, "Right Shift (⇧)"),       # Right Shift
     ]
 
     DEFAULT_TRIGGER_KEY = 63  # Fn key
+    DEFAULT_VOICE_IDLE_TIMEOUT_SECONDS = 20
 
     DEFAULT_PIPE_SLOTS = [
         {"title": "Basic Correction", "prompt": "Fix the following voice transcription: 1) Fix grammar errors, typos, and filler words; 2) Add proper punctuation; 3) Auto Format: standardize addresses, phone numbers, numbers, and times to their proper formats; 4) Auto Edit: if there are contradictions, keep the true intent based on context. Output only the corrected text:"},
@@ -44,6 +43,7 @@ class MicPipeStateStore:
             "sound_enabled": True,
             "dedicated_windows": {"ChatGPT": None, "Gemini": None},
             "trigger_key": self.DEFAULT_TRIGGER_KEY,
+            "voice_idle_timeout_seconds": self.DEFAULT_VOICE_IDLE_TIMEOUT_SECONDS,
             "pipe_slots": copy.deepcopy(self.DEFAULT_PIPE_SLOTS),
             "current_pipe_slot": -1,
         }
@@ -83,6 +83,10 @@ class MicPipeStateStore:
         if isinstance(trigger_key, int) and trigger_key in valid_keycodes:
             state["trigger_key"] = trigger_key
 
+        voice_idle_timeout_seconds = data.get("voice_idle_timeout_seconds")
+        if isinstance(voice_idle_timeout_seconds, int) and voice_idle_timeout_seconds in (0, 10, 15, 20, 25, 30):
+            state["voice_idle_timeout_seconds"] = voice_idle_timeout_seconds
+
         # Load pipe slots (support both old string format and new dict format)
         pipe_slots = data.get("pipe_slots")
         if isinstance(pipe_slots, list) and len(pipe_slots) == 5:
@@ -110,7 +114,16 @@ class MicPipeStateStore:
 
         return state
 
-    def save(self, current_service, sound_enabled, dedicated_windows, trigger_key=None, pipe_slots=None, current_pipe_slot=None):
+    def save(
+        self,
+        current_service,
+        sound_enabled,
+        dedicated_windows,
+        trigger_key=None,
+        voice_idle_timeout_seconds=None,
+        pipe_slots=None,
+        current_pipe_slot=None,
+    ):
         payload = {
             "current_service": current_service,
             "sound_enabled": sound_enabled,
@@ -123,6 +136,11 @@ class MicPipeStateStore:
                 else None,
             },
             "trigger_key": trigger_key if trigger_key is not None else self.DEFAULT_TRIGGER_KEY,
+            "voice_idle_timeout_seconds": (
+                voice_idle_timeout_seconds
+                if voice_idle_timeout_seconds is not None
+                else self.DEFAULT_VOICE_IDLE_TIMEOUT_SECONDS
+            ),
             "pipe_slots": pipe_slots if pipe_slots is not None else self.DEFAULT_PIPE_SLOTS.copy(),
             "current_pipe_slot": current_pipe_slot if current_pipe_slot is not None else -1,
         }

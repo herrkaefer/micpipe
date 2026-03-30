@@ -33,6 +33,7 @@ from state_manager import MicPipeStateStore
 # ============================================================
 __version__ = "1.5.0"
 VOICE_IDLE_TIMEOUT_SECONDS = 20
+VOICE_IDLE_TIMEOUT_OPTIONS = [0, 10, 15, 20, 25, 30]
 
 def configure_logging(debug: bool):
     logging.basicConfig(
@@ -69,6 +70,7 @@ class MicPipeApp(rumps.App):
         self.sound_enabled = state["sound_enabled"]
         self.dedicated_windows = state["dedicated_windows"]
         self.trigger_key = state["trigger_key"]
+        self.voice_idle_timeout_seconds = state["voice_idle_timeout_seconds"]
         self.pipe_slots = state["pipe_slots"]
         self.current_pipe_slot = state["current_pipe_slot"]
         self.chatgpt_chrome = ChatGPTChrome()
@@ -91,6 +93,7 @@ class MicPipeApp(rumps.App):
         self.target_app = None
         self.target_is_service_page = False  # True if triggered from ChatGPT/Gemini page
         self.trigger_key_currently_pressed = False
+        self.voice_fn_currently_pressed = False
         self.should_auto_start = False
         self.waiting_for_page = False
         self.service_tab_location = None  # Dedicated window location
@@ -125,6 +128,17 @@ class MicPipeApp(rumps.App):
             item.state = 1 if keycode == self.trigger_key else 0
             self.hotkey_items[keycode] = item
             self.hotkey_menu.add(item)
+
+        self.voice_idle_menu = rumps.MenuItem("  Auto-Stop Delay")
+        self.voice_idle_items = {}
+        for seconds in VOICE_IDLE_TIMEOUT_OPTIONS:
+            label = "Off" if seconds == 0 else f"{seconds}s"
+            item = rumps.MenuItem(label, callback=self._make_voice_idle_timeout_callback(seconds))
+            item.state = 1 if seconds == self.voice_idle_timeout_seconds else 0
+            self.voice_idle_items[seconds] = item
+            self.voice_idle_menu.add(item)
+        self.realtime_voice_start_item = rumps.MenuItem("", callback=None)
+        self.realtime_voice_stop_item = rumps.MenuItem("", callback=None)
 
         # AI Pipe submenu
         self.pipe_menu = rumps.MenuItem("AI Pipe")
@@ -167,33 +181,37 @@ class MicPipeApp(rumps.App):
         # Add non-clickable note about latency
         latency_note = rumps.MenuItem("Note: AI processing adds latency", callback=None)
         self.pipe_menu.add(latency_note)
-
-
-
-        key_name = self._get_key_name(self.trigger_key)
         self.hold_mode_info = rumps.MenuItem(f"  Hold → Hold to Speak", callback=None)
         self.toggle_mode_info = rumps.MenuItem(f"  Click → Toggle Start/Stop", callback=None)
-        self.voice_mode_info = rumps.MenuItem("  Shift+Press → Voice Conversation (ChatGPT)", callback=None)
         self.cancel_mode_info = rumps.MenuItem("  Press Esc → Cancel Dictation", callback=None)
+        self.dictation_section_title = rumps.MenuItem("Dictation", callback=None)
+        self.realtime_voice_section_title = rumps.MenuItem("ChatGPT Realtime Voice Chat", callback=None)
+        self.system_section_title = rumps.MenuItem("System", callback=None)
         self.sound_toggle_item = rumps.MenuItem(
             "Sound: On" if self.sound_enabled else "Sound: Off",
             callback=self.toggle_sound
         )
         self.reset_item = rumps.MenuItem("Reset (Self-Check & Repair)", callback=self.reset_app)
         self.version_info = rumps.MenuItem(f"Version: {__version__}", callback=None)
+        self._refresh_voice_menu_info()
 
         self.menu = [
             self.status_item,
             None,  # Separator
+            self.dictation_section_title,
             self.service_menu,
             self.hotkey_menu,
             self.pipe_menu,
-            None,  # Separator
             self.hold_mode_info,
             self.toggle_mode_info,
-            self.voice_mode_info,
             self.cancel_mode_info,
             None,  # Separator
+            self.realtime_voice_section_title,
+            self.realtime_voice_start_item,
+            self.realtime_voice_stop_item,
+            self.voice_idle_menu,
+            None,  # Separator
+            self.system_section_title,
             self.sound_toggle_item,
             self.reset_item,
             None,  # Separator
@@ -210,6 +228,7 @@ class MicPipeApp(rumps.App):
             self.sound_enabled, 
             self.dedicated_windows, 
             self.trigger_key,
+            self.voice_idle_timeout_seconds,
             self.pipe_slots,
             self.current_pipe_slot
         )
@@ -223,10 +242,26 @@ class MicPipeApp(rumps.App):
             for kc, item in self.hotkey_items.items():
                 item.state = 1 if kc == keycode else 0
             self.trigger_key = keycode
+            self._refresh_voice_menu_info()
             self._save_state()
             # Show notification about the change
             key_name = self._get_key_name(keycode)
             rumps.notification("MicPipe", "Hotkey Changed", f"New hotkey: {key_name}")
+        return callback
+
+    def _refresh_voice_menu_info(self):
+        self.realtime_voice_start_item.title = "  Start: Control+Fn"
+        self.realtime_voice_stop_item.title = "  Stop: Fn or Esc"
+
+    def _make_voice_idle_timeout_callback(self, seconds):
+        """Create a callback for selecting the voice auto-stop timeout."""
+        def callback(_):
+            for timeout, item in self.voice_idle_items.items():
+                item.state = 1 if timeout == seconds else 0
+            self.voice_idle_timeout_seconds = seconds
+            self._save_state()
+            message = "Disabled" if seconds == 0 else f"Auto-stop after {seconds}s"
+            rumps.notification("MicPipe", "Voice Auto-Stop", message)
         return callback
 
     def _get_slot_label(self, slot_index):
@@ -518,6 +553,8 @@ class MicPipeApp(rumps.App):
 
     def _check_voice_idle_timeout(self):
         try:
+            if self.voice_idle_timeout_seconds <= 0:
+                return
             _active, signature = self._get_voice_activity_signature()
             now = time.time()
             self._last_voice_activity_check_at = now
@@ -539,7 +576,7 @@ class MicPipeApp(rumps.App):
                 f"Voice idle check: idle_for={idle_for:.1f}s, "
                 f"text={self._summarize_voice_activity_signature(self._voice_activity_signature)}"
             )
-            if idle_for >= VOICE_IDLE_TIMEOUT_SECONDS and not self._voice_idle_stop_requested:
+            if idle_for >= self.voice_idle_timeout_seconds and not self._voice_idle_stop_requested:
                 self._voice_idle_stop_requested = True
                 logger.info(
                     f"Voice conversation idle for {idle_for:.1f}s; auto-stopping."
@@ -558,6 +595,7 @@ class MicPipeApp(rumps.App):
             self._check_cmd_file()
         if (
             self.is_voice_conversation
+            and self.voice_idle_timeout_seconds > 0
             and not self._voice_activity_check_inflight
             and self.animation_frame % 10 == 0
         ):
@@ -715,6 +753,7 @@ class MicPipeApp(rumps.App):
         self.waiting_for_page = False
         self.should_auto_start = False
         self.trigger_key_currently_pressed = False
+        self.voice_fn_currently_pressed = False
         self.current_state = "IDLE"
         self.status_item.title = "Status: Ready"
 
@@ -754,6 +793,24 @@ class MicPipeApp(rumps.App):
             keycode = Quartz.CGEventGetIntegerValueField(event, 9)
             flags = Quartz.CGEventGetFlags(event)
 
+            # Fixed shortcut for realtime voice: Control+Fn starts, Fn stops.
+            if keycode == 63:
+                fn_pressed = self._is_key_pressed(keycode, flags)
+
+                if fn_pressed != self.voice_fn_currently_pressed:
+                    self.voice_fn_currently_pressed = fn_pressed
+
+                    if self.is_voice_conversation:
+                        if fn_pressed:
+                            threading.Thread(target=self.stop_voice_conversation).start()
+                        return event
+
+                    if fn_pressed and not self.is_recording:
+                        control_held = bool(flags & Quartz.kCGEventFlagMaskControl)
+                        if control_held and self.current_service == "ChatGPT":
+                            threading.Thread(target=self.start_voice_conversation).start()
+                            return event
+
             # Handle trigger key - Dual Mode (Hold or Toggle) + Voice Conversation
             if keycode == self.trigger_key:
                 key_pressed = self._is_key_pressed(keycode, flags)
@@ -763,19 +820,12 @@ class MicPipeApp(rumps.App):
                     return event
                 self.trigger_key_currently_pressed = key_pressed
 
-                # Voice conversation active: any press stops it
+                # Voice conversation stop is handled by Fn/Esc.
                 if self.is_voice_conversation:
-                    if key_pressed:
-                        threading.Thread(target=self.stop_voice_conversation).start()
                     return event
 
-                # Shift+Trigger: start voice conversation (ChatGPT only)
+                # Normal dictation trigger
                 if key_pressed and not self.is_recording:
-                    shift_held = bool(flags & Quartz.kCGEventFlagMaskShift)
-                    if shift_held and self.current_service == "ChatGPT":
-                        threading.Thread(target=self.start_voice_conversation).start()
-                        return event
-                    # Normal dictation (Hold/Toggle Mode, unchanged)
                     threading.Thread(target=lambda: self.start_recording(is_hold_mode=True)).start()
                 elif not key_pressed:
                     # User released trigger key
@@ -875,9 +925,12 @@ class MicPipeApp(rumps.App):
                 self.current_state = "VOICE_CONVERSATION"
                 self.status_item.title = "Status: 🗣️ Voice Conversation"
                 self._last_voice_activity_at = time.time()
-                logger.info(
-                    f"Voice conversation started; idle timeout={VOICE_IDLE_TIMEOUT_SECONDS}s."
-                )
+                if self.voice_idle_timeout_seconds > 0:
+                    logger.info(
+                        f"Voice conversation started; idle timeout={self.voice_idle_timeout_seconds}s."
+                    )
+                else:
+                    logger.info("Voice conversation started; idle auto-stop disabled.")
                 self._play_sound(self._sound_voice_start)
             else:
                 # Voice mode clicked but overlay not detected; may still be initializing
@@ -886,10 +939,13 @@ class MicPipeApp(rumps.App):
                 self.current_state = "VOICE_CONVERSATION"
                 self.status_item.title = "Status: 🗣️ Voice Conversation"
                 self._last_voice_activity_at = time.time()
-                logger.info(
-                    "Voice conversation started optimistically; "
-                    f"idle timeout={VOICE_IDLE_TIMEOUT_SECONDS}s."
-                )
+                if self.voice_idle_timeout_seconds > 0:
+                    logger.info(
+                        "Voice conversation started optimistically; "
+                        f"idle timeout={self.voice_idle_timeout_seconds}s."
+                    )
+                else:
+                    logger.info("Voice conversation started optimistically; idle auto-stop disabled.")
                 self._play_sound(self._sound_voice_start)
                 logger.warning("Voice overlay not detected after click, proceeding optimistically.")
         else:
