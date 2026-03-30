@@ -4,6 +4,7 @@
 
 Current version: `v1.5.1`
 
+https://github.com/user-attachments/assets/24bebfb3-8877-42ca-848e-5d55beef4244
 
 [中文](README.zh-CN.md)
 
@@ -14,8 +15,6 @@ Current version: `v1.5.1`
 ## Overview
 
 MicPipe is a small macOS utility that lets you use ChatGPT's web-based voice dictation feature directly within any application.
-
-[📺 Watch Demo Video](demo/demo1.mp4)
 
 
 ### Key features

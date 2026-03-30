@@ -4,6 +4,7 @@
 
 Current version: `v1.5.1`
 
+https://github.com/user-attachments/assets/24bebfb3-8877-42ca-848e-5d55beef4244
 
 [English](README.md)
 
@@ -14,8 +15,6 @@ Current version: `v1.5.1`
 ## 简介
 
 MicPipe 是一个 macOS 小应用，让你能够直接在任何应用程序中使用 ChatGPT 网页版的语音输入功能。
-
-[📺 查看演示视频](demo/demo1.mp4)
 
 
 ### 主要功能
