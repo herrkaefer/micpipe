@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "micpipe"
-version = "1.4.2"
+version = "1.5.1"
 description = "Voice-to-text utility for ChatGPT using global hotkeys"
 readme = "README.md"
 requires-python = ">=3.11"

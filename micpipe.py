@@ -31,7 +31,7 @@ from state_manager import MicPipeStateStore
 #   36  - Return (Enter)
 #   49  - Space
 # ============================================================
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 VOICE_IDLE_TIMEOUT_SECONDS = 20
 VOICE_IDLE_TIMEOUT_OPTIONS = [0, 10, 15, 20, 25, 30]
 
