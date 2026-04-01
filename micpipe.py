@@ -420,9 +420,31 @@ class MicPipeApp(rumps.App):
                 pass
         rumps.notification(
             "MicPipe",
-            f"{self.current_service} 登录/权限问题",
+            f"{self.current_service} Login or Permission Issue",
             details
         )
+
+    def _window_creation_failure_message(self, chrome, service_name: str) -> str:
+        error = (getattr(chrome, "last_error", "") or "").strip()
+        if ":-1743:" in error or "Not authorized to send Apple events to Google Chrome" in error:
+            return (
+                "MicPipe does not currently have permission to control Google Chrome. "
+                "Go to System Settings > Privacy & Security > Automation, "
+                "allow your terminal or launcher app to control Google Chrome, then try again."
+            )
+        if ":-1728:" in error or "Can't get application \"Google Chrome\"" in error:
+            return (
+                "Google Chrome could not be accessed. "
+                "Open Chrome once manually, confirm Automation permission, and try again."
+            )
+        if error == "EMPTY_RESULT":
+            return (
+                f"Could not create the dedicated {service_name} window. "
+                "Make sure Google Chrome is installed and Automation permission is working."
+            )
+        if error:
+            return f"Could not create the dedicated {service_name} window. Details: {error}"
+        return f"Could not create the dedicated {service_name} window."
 
     def _update_service_tab_location_from_result(self, result: str):
         """Update self.service_tab_location when Chrome reports the actual window/tab used."""
@@ -473,7 +495,10 @@ class MicPipeApp(rumps.App):
                 self._save_state()
                 return new_location, True
 
-            logger.error(f"Failed to create dedicated window for {service_name}")
+            logger.error(
+                f"Failed to create dedicated window for {service_name}. "
+                f"Last error: {getattr(chrome, 'last_error', '')}"
+            )
             return None, False
         except Exception as e:
             logger.error(f"Failed to ensure dedicated window: {e}")
@@ -912,7 +937,7 @@ class MicPipeApp(rumps.App):
             return
         if self.current_service != "ChatGPT":
             rumps.notification("MicPipe", "Voice Mode",
-                               "语音对话仅支持 ChatGPT 服务。")
+                               "Voice conversation is only available with the ChatGPT service.")
             return
 
         self._voice_conversation_starting = True
@@ -925,15 +950,18 @@ class MicPipeApp(rumps.App):
         location, created = self._ensure_dedicated_window()
         if not location:
             self._voice_conversation_starting = False
-            rumps.notification("MicPipe", "Window Error",
-                               f"无法创建 {self.current_service} 专属窗口。")
+            rumps.notification(
+                "MicPipe",
+                "Window Error",
+                self._window_creation_failure_message(self.chrome, self.current_service)
+            )
             return
         self.service_tab_location = location
 
         if created:
             self._voice_conversation_starting = False
             rumps.notification("MicPipe", "Voice Mode",
-                               "ChatGPT 页面正在加载，请稍后再试。")
+                               "The ChatGPT page is still loading. Please try again shortly.")
             return
 
         # Check page readiness
@@ -942,7 +970,7 @@ class MicPipeApp(rumps.App):
         if status != "READY":
             self._voice_conversation_starting = False
             rumps.notification("MicPipe", "Voice Mode",
-                               "ChatGPT 页面尚未就绪，请稍后再试。")
+                               "The ChatGPT page is not ready yet. Please try again shortly.")
             return
 
         if self.service_tab_location:
@@ -1015,7 +1043,7 @@ class MicPipeApp(rumps.App):
                 logger.warning("Voice overlay not detected after click, proceeding optimistically.")
         else:
             rumps.notification("MicPipe", "Voice Mode",
-                               "未找到语音对话按钮，可能需要 ChatGPT Plus。")
+                               "Could not find the voice conversation button. ChatGPT Plus may be required.")
 
         self._voice_conversation_starting = False
 
@@ -1108,7 +1136,7 @@ class MicPipeApp(rumps.App):
                 logger.debug(f"Startup ready check: {res}")
                 if btn_missing_hits >= 6:
                     logger.warning(f"Startup: dictate button not found after {btn_missing_hits} checks. Last result: {res}")
-                    self._prompt_service_login("请在专属窗口登录后再试一次。")
+                    self._prompt_service_login("Please sign in within the dedicated window and try again.")
                     return
             else:
                 btn_missing_hits = 0
@@ -1130,7 +1158,7 @@ class MicPipeApp(rumps.App):
             rumps.notification(
                 "MicPipe",
                 "Window Error",
-                f"Could not create {self.current_service} dedicated window."
+                self._window_creation_failure_message(self.chrome, self.current_service)
             )
             return
         self.service_tab_location = location
@@ -1165,7 +1193,7 @@ class MicPipeApp(rumps.App):
             rumps.notification(
                 "MicPipe",
                 "Start Failed",
-                f"录音启动失败，请重试。Details: {res or 'UNKNOWN'}"
+                f"Could not start dictation. Please try again. Details: {res or 'UNKNOWN'}"
             )
 
         # 4. Restore focus
@@ -1227,7 +1255,9 @@ class MicPipeApp(rumps.App):
                     self.should_auto_start = False
                     self.current_state = "IDLE"
                     self.status_item.title = "Status: Ready"
-                    self._prompt_service_login("录音按钮不可用，请登录或检查权限后重试。")
+                    self._prompt_service_login(
+                        "The dictation button is unavailable. Please sign in or check permissions, then try again."
+                    )
                     return
             else:
                 btn_missing_hits = 0
@@ -1258,7 +1288,7 @@ class MicPipeApp(rumps.App):
             rumps.notification(
                 "MicPipe",
                 "Error",
-                f"录音启动失败，请重试。Details: {res or 'UNKNOWN'}"
+                f"Could not start dictation. Please try again. Details: {res or 'UNKNOWN'}"
             )
 
         # Restore focus to original app

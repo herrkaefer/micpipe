@@ -39,9 +39,11 @@ class ChromeController:
         self.url_pattern = url_pattern
         self.title_pattern = title_pattern
         self.default_url = default_url
+        self.last_error = ""
 
     def create_dedicated_window(self, bounds=(50, 50, 500, 400)):
         """Create a dedicated Chrome window and return (window_id, tab_index) or None."""
+        self.last_error = ""
         open_url = self.default_url
         script = f'''
         tell application "Google Chrome"
@@ -57,7 +59,13 @@ class ChromeController:
         end tell
         '''
         res = run_applescript(script)
-        if not res or res.startswith("__MICPIPE_APPLESCRIPT_ERROR__"):
+        if not res:
+            self.last_error = "EMPTY_RESULT"
+            logger.error(f"{self.service_name} create_dedicated_window returned empty result.")
+            return None
+        if res.startswith("__MICPIPE_APPLESCRIPT_ERROR__"):
+            self.last_error = res
+            logger.error(f"{self.service_name} create_dedicated_window failed: {res}")
             return None
         if res.startswith("WIN_ID:") and ",TAB:" in res:
             try:
@@ -66,7 +74,11 @@ class ChromeController:
                 tab_idx = int(tab_part)
                 return (win_id, tab_idx)
             except Exception:
+                self.last_error = f"PARSE_ERROR:{res}"
+                logger.error(f"{self.service_name} create_dedicated_window parse failed: {res}")
                 return None
+        self.last_error = f"UNEXPECTED_RESULT:{res}"
+        logger.error(f"{self.service_name} create_dedicated_window unexpected result: {res}")
         return None
 
     def is_window_alive(self, window_id, tab_index) -> bool:
